@@ -19,7 +19,7 @@ class Review extends Model
     ];
 
     protected $casts = [
-        'createdAt' => 'datetime',
+        'created_at' => 'datetime',
     ];
 
     public function disetujuiBy(): BelongsTo

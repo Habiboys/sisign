@@ -19,6 +19,7 @@ return new class extends Migration
             $table->timestamp('signedAt')->useCurrent();
             $table->string('signatureFile', 255)->nullable();
             $table->text('signatureHash')->nullable();
+            $table->timestamps();
         });
     }
 

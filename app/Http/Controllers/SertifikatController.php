@@ -16,7 +16,7 @@ class SertifikatController extends Controller
     public function index()
     {
         $sertifikats = Sertifikat::with(['templateSertif', 'certificateRecipients.user'])
-            ->latest('createdAt')
+            ->latest('created_at')
             ->paginate(10);
 
         return Inertia::render('Certificates/Index', [
@@ -83,7 +83,7 @@ class SertifikatController extends Controller
         ]);
 
         $file = $request->file('excel_file');
-        
+
         // Baca file Excel menggunakan maatwebsite/excel
         $rows = Excel::toArray([], $file);
         $rows = $rows[0]; // Ambil sheet pertama

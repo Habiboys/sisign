@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('action', 255);
             $table->uuid('targetId')->nullable();
             $table->timestamp('timestamp')->useCurrent();
+            $table->timestamps();
         });
     }
 

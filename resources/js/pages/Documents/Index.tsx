@@ -59,7 +59,7 @@ interface Document {
     title: string;
     files: string;
     number: string;
-    createdAt: string;
+    created_at: string;
     user: User;
     toUser: User;
     review: Review;
@@ -170,7 +170,8 @@ export default function DocumentsIndex({ documents, user }: Props) {
                                             {document.user.name}
                                         </TableCell>
                                         <TableCell>
-                                            {document.toUser.name}
+                                        {document.to_user?.name ?? '-'}
+
                                         </TableCell>
                                         <TableCell>
                                             {getStatusBadge(
@@ -179,7 +180,7 @@ export default function DocumentsIndex({ documents, user }: Props) {
                                         </TableCell>
                                         <TableCell>
                                             {new Date(
-                                                document.createdAt,
+                                                document.created_at,
                                             ).toLocaleDateString('id-ID')}
                                         </TableCell>
                                         <TableCell>

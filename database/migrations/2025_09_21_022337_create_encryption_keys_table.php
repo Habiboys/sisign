@@ -16,6 +16,7 @@ return new class extends Migration
             $table->uuid('userId');
             $table->text('publicKey');
             $table->text('privateKey');
+            $table->timestamps();
         });
     }
 

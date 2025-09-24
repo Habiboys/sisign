@@ -18,12 +18,15 @@ class DocumentController extends Controller
         $query = Document::with(['user', 'toUser', 'review']);
 
         if ($user->isAdmin()) {
-            $documents = $query->latest('createdAt')->paginate(10);
+            $documents = $query->latest('created_at')->paginate(10);
         } elseif ($user->isPimpinan()) {
-            $documents = $query->where('to', $user->id)->latest('createdAt')->paginate(10);
+            $documents = $query->where('to', $user->id)->latest('created_at')->paginate(10);
         } else {
-            $documents = $query->where('userId', $user->id)->latest('createdAt')->paginate(10);
+            $documents = $query->where('userId', $user->id)->latest('created_at')->paginate(10);
         }
+        // dd(Document::with('toUser')->first()->toUser);
+//         $documents = \App\Models\Document::with('toUser', 'user')->get();
+// dd($documents->toArray());
 
         return Inertia::render('Documents/Index', [
             'documents' => $documents,
@@ -70,7 +73,7 @@ class DocumentController extends Controller
             'files' => $filename,
             'number' => $request->number,
             'to' => $request->to,
-            'reviewId' => $review->id
+            'reviewId' => $review->id,
         ]);
 
         return redirect()->route('documents.index')->with('success', 'Dokumen berhasil diajukan');

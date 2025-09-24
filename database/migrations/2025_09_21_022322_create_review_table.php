@@ -16,7 +16,7 @@ return new class extends Migration
             $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
             $table->uuid('disetujui')->nullable();
             $table->text('komentar')->nullable();
-            $table->timestamp('createdAt')->useCurrent();
+            $table->timestamps();
             $table->foreign('disetujui')->references('id')->on('users')->onUpdate('cascade')->onDelete('set null');
         });
     }

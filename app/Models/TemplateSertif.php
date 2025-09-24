@@ -22,7 +22,7 @@ class TemplateSertif extends Model
     ];
 
     protected $casts = [
-        'createdAt' => 'datetime',
+        'created_at' => 'datetime',
         'updatedAt' => 'datetime',
     ];
 

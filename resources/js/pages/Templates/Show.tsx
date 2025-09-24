@@ -21,7 +21,7 @@ interface Review {
         id: string;
         name: string;
     };
-    createdAt: string;
+    created_at: string;
 }
 
 interface Template {
@@ -30,7 +30,7 @@ interface Template {
     description?: string;
     files: string;
     review: Review;
-    createdAt: string;
+    created_at: string;
     updatedAt: string;
 }
 
@@ -137,7 +137,7 @@ export default function TemplatesShow({ template, user }: Props) {
                                         </h4>
                                         <p className="text-gray-600">
                                             {new Date(
-                                                template.createdAt,
+                                                template.created_at,
                                             ).toLocaleDateString('id-ID')}
                                         </p>
                                     </div>
@@ -240,7 +240,7 @@ export default function TemplatesShow({ template, user }: Props) {
                                     </h4>
                                     <p className="text-gray-600">
                                         {new Date(
-                                            template.review.createdAt,
+                                            template.review.created_at,
                                         ).toLocaleDateString('id-ID')}
                                     </p>
                                 </div>
@@ -252,5 +252,8 @@ export default function TemplatesShow({ template, user }: Props) {
         </AppLayout>
     );
 }
+
+
+
 
 

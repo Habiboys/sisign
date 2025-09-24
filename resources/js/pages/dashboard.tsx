@@ -1,8 +1,17 @@
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link, router } from '@inertiajs/react';
-import { FileText, Clock, FileCheck, Award, Users, CheckCircle, XCircle, AlertCircle, Plus, Eye } from 'lucide-react';
+import { Head, Link } from '@inertiajs/react';
+import {
+    AlertCircle,
+    Award,
+    CheckCircle,
+    Clock,
+    FileCheck,
+    FileText,
+    Plus,
+    XCircle,
+} from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -28,14 +37,18 @@ interface DashboardProps {
         id: string;
         title: string;
         number: string;
-        createdAt: string;
+        created_at: string;
         user: { name: string };
         toUser: { name: string };
         review: { status: string };
     }>;
 }
 
-export default function Dashboard({ user, stats, recent_documents }: DashboardProps) {
+export default function Dashboard({
+    user,
+    stats,
+    recent_documents,
+}: DashboardProps) {
     const getRoleBadgeColor = (role: string) => {
         switch (role) {
             case 'admin':
@@ -73,10 +86,13 @@ export default function Dashboard({ user, stats, recent_documents }: DashboardPr
                             Selamat datang, {user.name}!
                         </h1>
                         <p className="text-gray-600 dark:text-gray-400">
-                            Sistem Informasi Pengajuan Dokumen dan Tanda Tangan Digital
+                            Sistem Informasi Pengajuan Dokumen dan Tanda Tangan
+                            Digital
                         </p>
                     </div>
-                    <div className={`rounded-full px-3 py-1 text-sm font-medium ${getRoleBadgeColor(user.role)}`}>
+                    <div
+                        className={`rounded-full px-3 py-1 text-sm font-medium ${getRoleBadgeColor(user.role)}`}
+                    >
                         {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                     </div>
                 </div>
@@ -87,7 +103,9 @@ export default function Dashboard({ user, stats, recent_documents }: DashboardPr
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-green-100">Total Dokumen</p>
-                                <p className="text-3xl font-bold">{stats.total_documents}</p>
+                                <p className="text-3xl font-bold">
+                                    {stats.total_documents}
+                                </p>
                             </div>
                             <FileText className="h-8 w-8 text-green-200" />
                         </div>
@@ -96,8 +114,12 @@ export default function Dashboard({ user, stats, recent_documents }: DashboardPr
                     <div className="rounded-xl bg-gradient-to-r from-yellow-500 to-yellow-600 p-6 text-white">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-yellow-100">Menunggu Review</p>
-                                <p className="text-3xl font-bold">{stats.pending_reviews}</p>
+                                <p className="text-yellow-100">
+                                    Menunggu Review
+                                </p>
+                                <p className="text-3xl font-bold">
+                                    {stats.pending_reviews}
+                                </p>
                             </div>
                             <Clock className="h-8 w-8 text-yellow-200" />
                         </div>
@@ -106,8 +128,12 @@ export default function Dashboard({ user, stats, recent_documents }: DashboardPr
                     <div className="rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 p-6 text-white">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-blue-100">Template Sertifikat</p>
-                                <p className="text-3xl font-bold">{stats.total_templates}</p>
+                                <p className="text-blue-100">
+                                    Template Sertifikat
+                                </p>
+                                <p className="text-3xl font-bold">
+                                    {stats.total_templates}
+                                </p>
                             </div>
                             <FileCheck className="h-8 w-8 text-blue-200" />
                         </div>
@@ -116,8 +142,12 @@ export default function Dashboard({ user, stats, recent_documents }: DashboardPr
                     <div className="rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 p-6 text-white">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-purple-100">Total Sertifikat</p>
-                                <p className="text-3xl font-bold">{stats.total_certificates}</p>
+                                <p className="text-purple-100">
+                                    Total Sertifikat
+                                </p>
+                                <p className="text-3xl font-bold">
+                                    {stats.total_certificates}
+                                </p>
                             </div>
                             <Award className="h-8 w-8 text-purple-200" />
                         </div>
@@ -129,45 +159,67 @@ export default function Dashboard({ user, stats, recent_documents }: DashboardPr
                     <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
                         Aksi Cepat
                     </h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                         <Link href="/documents/create" className="block">
-                            <div className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                                <Plus className="w-5 h-5 text-green-600 mr-3" />
+                            <div className="flex items-center rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50">
+                                <Plus className="mr-3 h-5 w-5 text-green-600" />
                                 <div>
-                                    <p className="font-medium text-gray-900">Ajukan Dokumen</p>
-                                    <p className="text-sm text-gray-500">Buat pengajuan baru</p>
+                                    <p className="font-medium text-gray-900">
+                                        Ajukan Dokumen
+                                    </p>
+                                    <p className="text-sm text-gray-500">
+                                        Buat pengajuan baru
+                                    </p>
                                 </div>
                             </div>
                         </Link>
-                        
+
                         <Link href="/documents" className="block">
-                            <div className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                                <FileText className="w-5 h-5 text-blue-600 mr-3" />
+                            <div className="flex items-center rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50">
+                                <FileText className="mr-3 h-5 w-5 text-blue-600" />
                                 <div>
-                                    <p className="font-medium text-gray-900">Lihat Dokumen</p>
-                                    <p className="text-sm text-gray-500">Kelola dokumen</p>
+                                    <p className="font-medium text-gray-900">
+                                        Lihat Dokumen
+                                    </p>
+                                    <p className="text-sm text-gray-500">
+                                        Kelola dokumen
+                                    </p>
                                 </div>
                             </div>
                         </Link>
 
                         {user.role === 'admin' && (
                             <>
-                                <Link href="/templates/create" className="block">
-                                    <div className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                                        <FileCheck className="w-5 h-5 text-purple-600 mr-3" />
+                                <Link
+                                    href="/templates/create"
+                                    className="block"
+                                >
+                                    <div className="flex items-center rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50">
+                                        <FileCheck className="mr-3 h-5 w-5 text-purple-600" />
                                         <div>
-                                            <p className="font-medium text-gray-900">Buat Template</p>
-                                            <p className="text-sm text-gray-500">Template sertifikat</p>
+                                            <p className="font-medium text-gray-900">
+                                                Buat Template
+                                            </p>
+                                            <p className="text-sm text-gray-500">
+                                                Template sertifikat
+                                            </p>
                                         </div>
                                     </div>
                                 </Link>
-                                
-                                <Link href="/certificates/bulk/create" className="block">
-                                    <div className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                                        <Award className="w-5 h-5 text-orange-600 mr-3" />
+
+                                <Link
+                                    href="/certificates/bulk/create"
+                                    className="block"
+                                >
+                                    <div className="flex items-center rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50">
+                                        <Award className="mr-3 h-5 w-5 text-orange-600" />
                                         <div>
-                                            <p className="font-medium text-gray-900">Bulk Sertifikat</p>
-                                            <p className="text-sm text-gray-500">Generate dari Excel</p>
+                                            <p className="font-medium text-gray-900">
+                                                Bulk Sertifikat
+                                            </p>
+                                            <p className="text-sm text-gray-500">
+                                                Generate dari Excel
+                                            </p>
                                         </div>
                                     </div>
                                 </Link>
@@ -207,7 +259,10 @@ export default function Dashboard({ user, stats, recent_documents }: DashboardPr
                             </thead>
                             <tbody>
                                 {recent_documents.map((doc) => (
-                                    <tr key={doc.id} className="border-b border-gray-100 dark:border-gray-700">
+                                    <tr
+                                        key={doc.id}
+                                        className="border-b border-gray-100 dark:border-gray-700"
+                                    >
                                         <td className="py-3 text-sm text-gray-900 dark:text-white">
                                             {doc.title}
                                         </td>
@@ -222,14 +277,18 @@ export default function Dashboard({ user, stats, recent_documents }: DashboardPr
                                         </td>
                                         <td className="py-3">
                                             <div className="flex items-center gap-2">
-                                                {getStatusIcon(doc.review.status)}
-                                                <span className="text-sm capitalize text-gray-600 dark:text-gray-400">
+                                                {getStatusIcon(
+                                                    doc.review.status,
+                                                )}
+                                                <span className="text-sm text-gray-600 capitalize dark:text-gray-400">
                                                     {doc.review.status}
                                                 </span>
                                             </div>
                                         </td>
                                         <td className="py-3 text-sm text-gray-600 dark:text-gray-400">
-                                            {new Date(doc.createdAt).toLocaleDateString('id-ID')}
+                                            {new Date(
+                                                doc.created_at,
+                                            ).toLocaleDateString('id-ID')}
                                         </td>
                                     </tr>
                                 ))}

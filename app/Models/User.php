@@ -27,6 +27,9 @@ class User extends Authenticatable
         'password',
         'role',
     ];
+    protected $keyType = 'string';   // penting!
+    public $incrementing = false;    // matikan auto increment
+
 
     /**
      * The attributes that should be hidden for serialization.

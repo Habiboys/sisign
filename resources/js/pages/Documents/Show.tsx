@@ -44,7 +44,7 @@ interface Review {
     status: 'pending' | 'approved' | 'rejected';
     komentar?: string;
     disetujui?: string;
-    createdAt: string;
+    created_at: string;
 }
 
 interface Signature {
@@ -60,9 +60,9 @@ interface Document {
     title: string;
     files: string;
     number: string;
-    createdAt: string;
+    created_at: string;
     user: User;
-    toUser: User;
+    to_user: User;
     review: Review;
     signatures: Signature[];
 }
@@ -213,7 +213,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                         </Label>
                                         <p className="flex items-center">
                                             <User className="mr-2 h-4 w-4" />
-                                            {document.toUser.name}
+                                            {document.to_user.name}
                                         </p>
                                     </div>
                                 </div>
@@ -225,7 +225,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                     <p className="flex items-center">
                                         <Calendar className="mr-2 h-4 w-4" />
                                         {new Date(
-                                            document.createdAt,
+                                            document.created_at,
                                         ).toLocaleDateString('id-ID', {
                                             weekday: 'long',
                                             year: 'numeric',

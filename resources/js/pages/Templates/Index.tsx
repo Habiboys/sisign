@@ -52,7 +52,7 @@ interface Template {
     title: string;
     description?: string;
     files: string;
-    createdAt: string;
+    created_at: string;
     review: Review;
 }
 
@@ -166,7 +166,7 @@ export default function TemplatesIndex({ templates, user }: Props) {
                                         </TableCell>
                                         <TableCell>
                                             {new Date(
-                                                template.createdAt,
+                                                template.created_at,
                                             ).toLocaleDateString('id-ID')}
                                         </TableCell>
                                         <TableCell>

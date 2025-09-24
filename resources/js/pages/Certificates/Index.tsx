@@ -46,7 +46,7 @@ interface CertificateRecipient {
 interface Sertifikat {
     id: string;
     nomor_sertif: string;
-    createdAt: string;
+    created_at: string;
     templateSertif: {
         id: string;
         title: string;
@@ -147,7 +147,7 @@ export default function CertificatesIndex({ sertifikats, user }: Props) {
                                         </TableCell>
                                         <TableCell>
                                             {new Date(
-                                                sertifikat.createdAt,
+                                                sertifikat.created_at,
                                             ).toLocaleDateString('id-ID')}
                                         </TableCell>
                                         <TableCell>

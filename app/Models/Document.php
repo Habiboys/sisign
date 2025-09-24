@@ -22,11 +22,10 @@ class Document extends Model
         'to',
         'reviewId',
     ];
+    protected $keyType = 'string';   // penting!
+    public $incrementing = false;    // matikan auto increment
 
-    protected $casts = [
-        'createdAt' => 'datetime',
-        'updatedAt' => 'datetime',
-    ];
+
 
     public function user(): BelongsTo
     {

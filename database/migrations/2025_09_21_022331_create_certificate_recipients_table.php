@@ -16,6 +16,7 @@ return new class extends Migration
             $table->uuid('sertifikatId');
             $table->uuid('userId');
             $table->timestamp('issuedAt')->useCurrent();
+            $table->timestamps();
         });
     }
 

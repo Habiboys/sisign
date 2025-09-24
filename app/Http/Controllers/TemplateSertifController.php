@@ -14,7 +14,7 @@ class TemplateSertifController extends Controller
     public function index()
     {
         $templates = TemplateSertif::with('review')
-            ->latest('createdAt')
+            ->latest('created_at')
             ->paginate(10);
 
         return Inertia::render('Templates/Index', [

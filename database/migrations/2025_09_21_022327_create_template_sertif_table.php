@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('title', 255);
             $table->text('description')->nullable();
             $table->uuid('reviewId');
-            $table->timestamp('createdAt')->useCurrent();
+            $table->timestamp('created_at')->useCurrent();
             $table->timestamp('updatedAt')->useCurrent()->useCurrentOnUpdate();
             $table->softDeletes();
         });
