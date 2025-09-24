@@ -19,11 +19,30 @@ class Signature extends Model
         'signatureHash',
         'signatureData',
         'isUnique',
+        'position_x',
+        'position_y',
+        'width',
+        'height',
+        'page_number',
+        'digital_signature',
+        'signature_timestamp',
+        'certificate_info',
     ];
 
     protected $casts = [
         'signedAt' => 'datetime',
         'isUnique' => 'boolean',
+        'signature_timestamp' => 'datetime',
+        'position_x' => 'integer',
+        'position_y' => 'integer',
+        'width' => 'integer',
+        'height' => 'integer',
+        'page_number' => 'integer',
+    ];
+
+    protected $dates = [
+        'signedAt',
+        'signature_timestamp'
     ];
 
     public function document(): BelongsTo
@@ -38,6 +57,6 @@ class Signature extends Model
 
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'userId');
+        return $this->belongsTo(\App\Models\User::class, 'userId');
     }
 }

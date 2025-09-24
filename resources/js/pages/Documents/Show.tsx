@@ -153,11 +153,7 @@ export default function DocumentsShow({ document, user }: Props) {
                         {canSign && (
                             <Button
                                 onClick={() =>
-                                    router.visit(
-                                        routes.signatures.create({
-                                            document_id: document.id,
-                                        }),
-                                    )
+                                    router.visit(`/documents/${document.id}/sign`)
                                 }
                                 className="bg-green-600 hover:bg-green-700"
                             >

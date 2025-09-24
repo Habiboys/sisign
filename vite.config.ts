@@ -20,4 +20,10 @@ export default defineConfig({
     esbuild: {
         jsx: 'automatic',
     },
+    assetsInclude: ['**/*.worker.js', '**/*.worker.min.js'],
+    server: {
+        fs: {
+            allow: ['..']
+        }
+    }
 });

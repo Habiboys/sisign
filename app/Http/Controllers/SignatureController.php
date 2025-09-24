@@ -2,16 +2,29 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Signature;
 use App\Models\Document;
+use App\Models\EncryptionKey;
+use App\Models\Signature;
 use App\Models\TemplateSertif;
+use App\Services\EncryptionService;
+use App\Services\SignatureService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
 class SignatureController extends Controller
 {
+    protected SignatureService $signatureService;
+    protected EncryptionService $encryptionService;
+
+    public function __construct(SignatureService $signatureService, EncryptionService $encryptionService)
+    {
+        $this->signatureService = $signatureService;
+        $this->encryptionService = $encryptionService;
+    }
+
     public function index()
     {
         $signatures = Signature::with(['document', 'user'])
@@ -30,86 +43,311 @@ class SignatureController extends Controller
         $templateId = $request->get('template_id');
 
         if ($documentId) {
-            $document = Document::findOrFail($documentId);
-            return Inertia::render('Signatures/Create', [
-                'document' => $document,
-                'type' => 'document',
-                'user' => Auth::user()
-            ]);
+            // Redirect to new sign page
+            return redirect()->route('documents.sign', $documentId);
         }
 
         if ($templateId) {
-            $template = TemplateSertif::findOrFail($templateId);
-            return Inertia::render('Signatures/Create', [
-                'template' => $template,
-                'type' => 'template',
-                'user' => Auth::user()
-            ]);
+            // For templates, redirect to templates show page
+            return redirect()->route('templates.show', $templateId);
         }
 
         abort(404);
     }
 
-    public function store(Request $request)
+    /**
+     * Show signature page for a document
+     */
+    public function show(Document $document)
+    {
+        $document->load(['user', 'signatures.user']);
+        $hasEncryptionKeys = EncryptionKey::where('userId', Auth::id())->exists();
+        
+        return Inertia::render('Signature/Show', [
+            'document' => $document,
+            'existingSignatures' => $this->signatureService->getSignaturePositions($document),
+            'canSign' => $this->canUserSign($document),
+            'hasEncryptionKeys' => $hasEncryptionKeys,
+        ]);
+    }
+
+    /**
+     * Create physical signature (canvas-based)
+     */
+    public function storePhysical(Request $request, Document $document)
     {
         $request->validate([
-            'type' => 'required|in:physical,digital',
-            'signature_type' => 'required|in:document,template',
-            'signature_data' => 'required_if:type,digital|string',
-            'signature_hash' => 'required_if:type,digital|string',
-            'document_id' => 'required_if:signature_type,document|uuid|exists:document,id',
-            'template_id' => 'required_if:signature_type,template|uuid|exists:template_sertif,id',
+            'signatureData' => 'required|string',
+            'position' => 'array',
+            'position.x' => 'nullable|integer|min:0',
+            'position.y' => 'nullable|integer|min:0',
+            'position.width' => 'nullable|integer|min:50|max:300',
+            'position.height' => 'nullable|integer|min:25|max:150',
+            'position.page' => 'nullable|integer|min:1',
         ]);
 
-        $signatureData = [
-            'userId' => Auth::id(),
-            'type' => $request->type,
-            'signedAt' => now(),
-            'isUnique' => true
-        ];
+        try {
+            $signature = $this->signatureService->createPhysicalSignature([
+                'documentId' => $document->id,
+                'userId' => Auth::id(),
+                'signatureData' => $request->signatureData,
+                'position' => $request->position ?? [],
+            ]);
 
-        if ($request->signature_type === 'document') {
-            $signatureData['documentId'] = $request->document_id;
-        } else {
-            $signatureData['templateSertifId'] = $request->template_id;
-        }
-
-        if ($request->type === 'digital') {
-            $signatureData['signatureData'] = $request->signature_data;
-            $signatureData['signatureHash'] = $request->signature_hash;
-
-            // Generate unique hash for this signature
-            $uniqueHash = hash('sha256', $signatureData['signatureData'] . $signatureData['userId'] . now());
-            $signatureData['signatureHash'] = $uniqueHash;
-        }
-
-        Signature::create($signatureData);
-
-        if ($request->signature_type === 'document') {
-            return redirect()->route('documents.show', $request->document_id)->with('success', 'Tanda tangan berhasil ditambahkan');
-        } else {
-            return redirect()->route('templates.show', $request->template_id)->with('success', 'Tanda tangan berhasil ditambahkan');
+            return response()->json([
+                'success' => true,
+                'message' => 'Physical signature created successfully',
+                'signature' => $signature->load('user'),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create physical signature: ' . $e->getMessage(),
+            ], 500);
         }
     }
 
-    public function show(Signature $signature)
+    /**
+     * Create digital signature (cryptographic)
+     */
+    public function storeDigital(Request $request, Document $document)
     {
-        $signature->load(['document', 'user']);
-
-        return Inertia::render('Signatures/Show', [
-            'signature' => $signature,
-            'user' => Auth::user()
+        $request->validate([
+            'position' => 'array',
+            'position.x' => 'nullable|integer|min:0',
+            'position.y' => 'nullable|integer|min:0',
+            'position.width' => 'nullable|integer|min:100|max:400',
+            'position.height' => 'nullable|integer|min:50|max:200',
+            'position.page' => 'nullable|integer|min:1',
+            'passphrase' => 'nullable|string',
         ]);
+
+        try {
+            $signature = $this->signatureService->createDigitalSignature([
+                'documentId' => $document->id,
+                'userId' => Auth::id(),
+                'position' => $request->position ?? [],
+                'passphrase' => $request->passphrase,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Digital signature created successfully',
+                'signature' => $signature->load('user'),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create digital signature: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Create combined signature (physical + digital)
+     */
+    public function storeCombined(Request $request, Document $document)
+    {
+        $request->validate([
+            'signatureData' => 'required|string',
+            'position' => 'required|array',
+            'position.x' => 'required|integer|min:0',
+            'position.y' => 'required|integer|min:0',
+            'position.width' => 'nullable|integer|min:50|max:300',
+            'position.height' => 'nullable|integer|min:25|max:150',
+            'position.page' => 'nullable|integer|min:1',
+            'passphrase' => 'nullable|string',
+        ]);
+
+        try {
+            // Create physical signature first
+            $physicalSignature = $this->signatureService->createPhysicalSignature([
+                'documentId' => $document->id,
+                'userId' => Auth::id(),
+                'signatureData' => $request->signatureData,
+                'position' => $request->position,
+            ]);
+
+            // Create digital signature
+            $digitalSignature = $this->signatureService->createDigitalSignature([
+                'documentId' => $document->id,
+                'userId' => Auth::id(),
+                'position' => [
+                    'x' => $request->position['x'],
+                    'y' => $request->position['y'] + ($request->position['height'] ?? 75) + 10,
+                    'width' => 200,
+                    'height' => 60,
+                    'page' => $request->position['page'] ?? 1,
+                ],
+                'passphrase' => $request->passphrase,
+            ]);
+
+            return redirect()->back()->with('success', 'Combined signature created successfully (Physical + Digital)');
+        } catch (\Exception $e) {
+            return redirect()->back()->withErrors(['error' => 'Failed to create combined signature: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Preview signed PDF in browser
+     */
+    public function previewSignedPDF(Document $document)
+    {
+        try {
+            $signedPdfPath = $this->signatureService->applySignaturesToPDF($document);
+            
+            $file = file_get_contents($signedPdfPath);
+            
+            // Clean up temporary file
+            unlink($signedPdfPath);
+            
+            return response($file, 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="signed_' . basename($document->files) . '"',
+            ]);
+        } catch (\Exception $e) {
+            return response('Error generating signed PDF: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Generate signed PDF with all signatures
+     */
+    public function generateSignedPDF(Document $document)
+    {
+        try {
+            $signedPdfPath = $this->signatureService->applySignaturesToPDF($document);
+            
+            return Response::download($signedPdfPath, 'signed_' . basename($document->files))
+                ->deleteFileAfterSend(true);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to generate signed PDF: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Verify digital signature
+     */
+    public function verifyDigital(Signature $signature)
+    {
+        if ($signature->type !== 'digital') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This is not a digital signature',
+            ], 400);
+        }
+
+        try {
+            $isValid = $this->signatureService->verifyDigitalSignature($signature);
+            
+            return response()->json([
+                'success' => true,
+                'valid' => $isValid,
+                'message' => $isValid ? 'Signature is valid' : 'Signature is invalid or tampered',
+                'signature_info' => [
+                    'signer' => $signature->user->name,
+                    'signed_at' => $signature->signedAt,
+                    'certificate_info' => json_decode($signature->certificate_info, true),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to verify signature: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Update signature position
+     */
+    public function updatePosition(Request $request, Signature $signature)
+    {
+        $request->validate([
+            'position_x' => 'required|integer|min:0',
+            'position_y' => 'required|integer|min:0',
+            'width' => 'nullable|integer|min:50',
+            'height' => 'nullable|integer|min:25',
+            'page_number' => 'nullable|integer|min:1',
+        ]);
+
+        if ($signature->userId !== Auth::id()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized to update this signature',
+            ], 403);
+        }
+
+        try {
+            $signature->update([
+                'position_x' => $request->position_x,
+                'position_y' => $request->position_y,
+                'width' => $request->width ?? $signature->width,
+                'height' => $request->height ?? $signature->height,
+                'page_number' => $request->page_number ?? $signature->page_number,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Signature position updated successfully',
+                'signature' => $signature->fresh(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update signature position: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function destroy(Signature $signature)
     {
-        if ($signature->signatureFile && Storage::disk('public')->exists('signatures/' . $signature->signatureFile)) {
-            Storage::disk('public')->delete('signatures/' . $signature->signatureFile);
+        if ($signature->userId !== Auth::id()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized to delete this signature',
+            ], 403);
         }
 
-        $signature->delete();
+        try {
+            if ($signature->signatureFile) {
+                Storage::delete($signature->signatureFile);
+            }
+            
+            $signature->delete();
 
-        return redirect()->back()->with('success', 'Tanda tangan berhasil dihapus');
+            return response()->json([
+                'success' => true,
+                'message' => 'Signature deleted successfully',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete signature: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Check if current user can sign the document
+     */
+    private function canUserSign(Document $document): bool
+    {
+        $user = Auth::user();
+        
+        // Check if user is the recipient or has permission
+        if ($document->to === $user->id || $document->userId === $user->id) {
+            return true;
+        }
+
+        // Check if user already signed
+        $existingSignature = $document->signatures()
+            ->where('userId', $user->id)
+            ->exists();
+
+        return !$existingSignature;
     }
 }

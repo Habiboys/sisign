@@ -1,0 +1,316 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Document, Page, pdfjs } from 'react-pdf';
+import SignatureCanvas from './SignatureCanvas';
+
+// Configure PDF.js worker with HTTPS
+if (typeof window !== 'undefined') {
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+}
+
+interface SignaturePosition {
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    page: number;
+    type: 'physical' | 'digital';
+    user?: {
+        id: string;
+        name: string;
+    };
+    signedAt?: string;
+}
+
+interface PDFSignatureViewerProps {
+    pdfUrl: string;
+    signatures: SignaturePosition[];
+    onSignaturePositionChange: (signatureId: string, position: { x: number; y: number; width: number; height: number; page: number }) => void;
+    onSignatureComplete: (signatureData: string, position: { x: number; y: number; page: number }) => void;
+    canEdit?: boolean;
+    currentPage: number;
+    onPageChange: (page: number) => void;
+}
+
+const PDFSignatureViewer: React.FC<PDFSignatureViewerProps> = ({
+    pdfUrl,
+    signatures,
+    onSignaturePositionChange,
+    onSignatureComplete,
+    canEdit = false,
+    currentPage,
+    onPageChange
+}) => {
+    const [numPages, setNumPages] = useState<number>(0);
+    const [scale, setScale] = useState(1.0);
+    const [draggedSignature, setDraggedSignature] = useState<string | null>(null);
+    const [showSignatureCanvas, setShowSignatureCanvas] = useState(false);
+    const [signaturePosition, setSignaturePosition] = useState<{ x: number; y: number; page: number } | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const pageRef = useRef<HTMLDivElement>(null);
+
+    const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+        setNumPages(numPages);
+        setIsLoading(false);
+        setError(null);
+    };
+
+    const onDocumentLoadError = (error: Error) => {
+        console.error('PDF load error:', error);
+        setError(`Failed to load PDF: ${error.message}`);
+        setIsLoading(false);
+    };
+
+    const handleMouseDown = (e: React.MouseEvent, signatureId: string) => {
+        if (!canEdit) return;
+        
+        e.preventDefault();
+        setDraggedSignature(signatureId);
+        
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!pageRef.current) return;
+            
+            const rect = pageRef.current.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / scale;
+            const y = (e.clientY - rect.top) / scale;
+            
+            const signature = signatures.find(s => s.id === signatureId);
+            if (signature) {
+                onSignaturePositionChange(signatureId, {
+                    x: Math.max(0, x),
+                    y: Math.max(0, y),
+                    width: signature.width,
+                    height: signature.height,
+                    page: currentPage
+                });
+            }
+        };
+        
+        const handleMouseUp = () => {
+            setDraggedSignature(null);
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+        
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const handlePageClick = (e: React.MouseEvent) => {
+        if (!canEdit) return;
+        
+        if (!pageRef.current) return;
+        
+        const rect = pageRef.current.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / scale;
+        const y = (e.clientY - rect.top) / scale;
+        
+        // Set position for signature canvas
+        setSignaturePosition({ x, y, page: currentPage });
+        setShowSignatureCanvas(true);
+    };
+
+    const handleSignatureComplete = (signatureData: string | null) => {
+        if (signaturePosition && signatureData) {
+            onSignatureComplete(signatureData, signaturePosition);
+            setShowSignatureCanvas(false);
+            setSignaturePosition(null);
+        }
+    };
+
+    const handleSignatureCancel = () => {
+        setShowSignatureCanvas(false);
+        setSignaturePosition(null);
+    };
+
+    const currentPageSignatures = signatures.filter(s => s.page === currentPage);
+
+    return (
+        <div className="pdf-signature-viewer">
+            {/* Toolbar */}
+            <div className="flex justify-between items-center mb-4 p-4 bg-gray-100 rounded-lg">
+                <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                        <label className="text-sm font-medium">Page:</label>
+                        <input
+                            type="number"
+                            min="1"
+                            max={numPages}
+                            value={currentPage}
+                            onChange={(e) => onPageChange(parseInt(e.target.value))}
+                            className="w-16 px-2 py-1 border rounded text-center"
+                        />
+                        <span className="text-sm text-gray-500">of {numPages}</span>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                        <label className="text-sm font-medium">Zoom:</label>
+                        <select
+                            value={scale}
+                            onChange={(e) => setScale(parseFloat(e.target.value))}
+                            className="px-2 py-1 border rounded"
+                        >
+                            <option value="0.5">50%</option>
+                            <option value="0.75">75%</option>
+                            <option value="1.0">100%</option>
+                            <option value="1.25">125%</option>
+                            <option value="1.5">150%</option>
+                            <option value="2.0">200%</option>
+                        </select>
+                    </div>
+                </div>
+
+                {canEdit && (
+                    <div className="flex items-center space-x-2">
+                        <div className="text-sm text-blue-600 font-medium">
+                            Click on the document to sign
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* PDF Viewer */}
+            <div className="relative border border-gray-300 rounded-lg overflow-hidden">
+                {isLoading && (
+                    <div className="flex items-center justify-center p-8">
+                        <div className="text-gray-500">Loading PDF...</div>
+                    </div>
+                )}
+                
+                {error && (
+                    <div className="flex items-center justify-center p-8">
+                        <div className="text-red-500">{error}</div>
+                    </div>
+                )}
+                
+                {!error && (
+                    <div
+                        ref={pageRef}
+                        className="relative"
+                        onClick={handlePageClick}
+                        style={{ cursor: canEdit ? 'crosshair' : 'default' }}
+                    >
+                        <Document
+                            file={pdfUrl}
+                            onLoadSuccess={onDocumentLoadSuccess}
+                            onLoadError={onDocumentLoadError}
+                            className="flex justify-center"
+                            loading={<div className="p-4 text-center text-gray-500">Loading PDF...</div>}
+                            error={<div className="p-4 text-center text-red-500">Failed to load PDF</div>}
+                        >
+                            <Page
+                                pageNumber={currentPage}
+                                scale={scale}
+                                className="shadow-lg"
+                                loading={<div className="p-4 text-center text-gray-500">Loading page...</div>}
+                                error={<div className="p-4 text-center text-red-500">Failed to load page</div>}
+                            />
+                        </Document>
+
+                    {/* Signature overlays */}
+                    {currentPageSignatures.map((signature) => (
+                        <div
+                            key={signature.id}
+                            className={`absolute border-2 rounded cursor-move ${
+                                signature.type === 'physical'
+                                    ? 'border-blue-500 bg-blue-100 bg-opacity-30'
+                                    : 'border-green-500 bg-green-100 bg-opacity-30'
+                            } ${draggedSignature === signature.id ? 'opacity-75' : ''}`}
+                            style={{
+                                left: signature.x * scale,
+                                top: signature.y * scale,
+                                width: signature.width * scale,
+                                height: signature.height * scale,
+                                zIndex: 10,
+                            }}
+                            onMouseDown={(e) => handleMouseDown(e, signature.id)}
+                        >
+                            <div className="p-1 text-xs">
+                                <div className="font-semibold">
+                                    ✍️ {signature.user?.name || 'Unknown'}
+                                </div>
+                                {signature.signedAt && (
+                                    <div className="text-gray-600">
+                                        {new Date(signature.signedAt).toLocaleDateString()}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+
+                    {/* Signature Canvas Overlay */}
+                    {showSignatureCanvas && signaturePosition && (
+                        <div
+                            className="absolute bg-white border-2 border-blue-500 rounded-lg shadow-lg z-20"
+                            style={{
+                                left: signaturePosition.x * scale,
+                                top: signaturePosition.y * scale,
+                                minWidth: '320px',
+                            }}
+                        >
+                            <div className="p-4">
+                                <h3 className="text-sm font-medium mb-3 text-gray-900">
+                                    Sign Document (Physical + Digital)
+                                </h3>
+                                <SignatureCanvas
+                                    onSignatureChange={handleSignatureComplete}
+                                />
+                                <div className="mt-3 flex justify-end space-x-2">
+                                    <button
+                                        onClick={handleSignatureCancel}
+                                        className="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                                <div className="mt-2 text-xs text-gray-500">
+                                    This will create both physical and digital signatures
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Page Navigation */}
+            <div className="flex justify-center items-center mt-4 space-x-4">
+                <button
+                    onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                    disabled={currentPage <= 1}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 transition-colors"
+                >
+                    Previous
+                </button>
+                
+                <span className="px-4 py-2 bg-gray-100 rounded">
+                    Page {currentPage} of {numPages}
+                </span>
+                
+                <button
+                    onClick={() => onPageChange(Math.min(numPages, currentPage + 1))}
+                    disabled={currentPage >= numPages}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-300 transition-colors"
+                >
+                    Next
+                </button>
+            </div>
+
+            {/* Instructions */}
+            {canEdit && (
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <h4 className="font-semibold text-yellow-800 mb-2">Instructions:</h4>
+                    <ul className="text-sm text-yellow-700 space-y-1">
+                        <li>• Click "Add Physical Signature" or "Add Digital Signature" buttons</li>
+                        <li>• Click on the PDF to place the signature</li>
+                        <li>• Drag existing signatures to reposition them</li>
+                        <li>• Use zoom controls to adjust the view</li>
+                        <li>• Navigate between pages using the page controls</li>
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default PDFSignatureViewer;

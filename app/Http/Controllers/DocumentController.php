@@ -115,4 +115,19 @@ class DocumentController extends Controller
 
         return redirect()->route('documents.index')->with('success', 'Dokumen berhasil dihapus');
     }
+
+    public function viewPDF(Document $document)
+    {
+        $filePath = 'documents/' . $document->files;
+        
+        if (!Storage::disk('public')->exists($filePath)) {
+            abort(404, 'File not found');
+        }
+
+        return Storage::disk('public')->response($filePath, null, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline',
+            'Access-Control-Allow-Origin' => '*',
+        ]);
+    }
 }
