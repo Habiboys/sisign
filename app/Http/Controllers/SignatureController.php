@@ -60,9 +60,16 @@ class SignatureController extends Controller
      */
     public function show(Document $document)
     {
+        $user = Auth::user();
+
+        // Only pimpinan can access signature page
+        if (!$user->isPimpinan()) {
+            abort(403, 'Hanya pimpinan yang dapat mengakses halaman tanda tangan');
+        }
+
         $document->load(['user', 'signatures.user']);
         $hasEncryptionKeys = EncryptionKey::where('userId', Auth::id())->exists();
-        
+
         return Inertia::render('Signature/Show', [
             'document' => $document,
             'existingSignatures' => $this->signatureService->getSignaturePositions($document),
@@ -76,6 +83,16 @@ class SignatureController extends Controller
      */
     public function storePhysical(Request $request, Document $document)
     {
+        $user = Auth::user();
+
+        // Only pimpinan can create signatures
+        if (!$user->isPimpinan()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya pimpinan yang dapat membuat tanda tangan',
+            ], 403);
+        }
+
         $request->validate([
             'signatureData' => 'required|string',
             'position' => 'array',
@@ -148,6 +165,13 @@ class SignatureController extends Controller
      */
     public function storeCombined(Request $request, Document $document)
     {
+        $user = Auth::user();
+
+        // Only pimpinan can create signatures
+        if (!$user->isPimpinan()) {
+            return redirect()->back()->withErrors(['error' => 'Hanya pimpinan yang dapat membuat tanda tangan']);
+        }
+
         $request->validate([
             'signatureData' => 'required|string',
             'position' => 'required|array',
@@ -160,7 +184,7 @@ class SignatureController extends Controller
         ]);
 
         try {
-            // Create physical signature first
+            // Create physical signature
             $physicalSignature = $this->signatureService->createPhysicalSignature([
                 'documentId' => $document->id,
                 'userId' => Auth::id(),
@@ -168,7 +192,7 @@ class SignatureController extends Controller
                 'position' => $request->position,
             ]);
 
-            // Create digital signature
+            // Create digital signature (for verification, not displayed in PDF)
             $digitalSignature = $this->signatureService->createDigitalSignature([
                 'documentId' => $document->id,
                 'userId' => Auth::id(),
@@ -182,9 +206,9 @@ class SignatureController extends Controller
                 'passphrase' => $request->passphrase,
             ]);
 
-            return redirect()->back()->with('success', 'Combined signature created successfully (Physical + Digital)');
+            return redirect()->back()->with('success', 'Tanda tangan berhasil ditambahkan (Fisik + Digital)');
         } catch (\Exception $e) {
-            return redirect()->back()->withErrors(['error' => 'Failed to create combined signature: ' . $e->getMessage()]);
+            return redirect()->back()->withErrors(['error' => 'Gagal menambahkan tanda tangan: ' . $e->getMessage()]);
         }
     }
 
@@ -195,12 +219,12 @@ class SignatureController extends Controller
     {
         try {
             $signedPdfPath = $this->signatureService->applySignaturesToPDF($document);
-            
+
             $file = file_get_contents($signedPdfPath);
-            
+
             // Clean up temporary file
             unlink($signedPdfPath);
-            
+
             return response($file, 200, [
                 'Content-Type' => 'application/pdf',
                 'Content-Disposition' => 'inline; filename="signed_' . basename($document->files) . '"',
@@ -217,7 +241,7 @@ class SignatureController extends Controller
     {
         try {
             $signedPdfPath = $this->signatureService->applySignaturesToPDF($document);
-            
+
             return Response::download($signedPdfPath, 'signed_' . basename($document->files))
                 ->deleteFileAfterSend(true);
         } catch (\Exception $e) {
@@ -242,7 +266,7 @@ class SignatureController extends Controller
 
         try {
             $isValid = $this->signatureService->verifyDigitalSignature($signature);
-            
+
             return response()->json([
                 'success' => true,
                 'valid' => $isValid,
@@ -316,7 +340,7 @@ class SignatureController extends Controller
             if ($signature->signatureFile) {
                 Storage::delete($signature->signatureFile);
             }
-            
+
             $signature->delete();
 
             return response()->json([
@@ -337,10 +361,15 @@ class SignatureController extends Controller
     private function canUserSign(Document $document): bool
     {
         $user = Auth::user();
-        
-        // Check if user is the recipient or has permission
-        if ($document->to === $user->id || $document->userId === $user->id) {
-            return true;
+
+        // Only pimpinan can sign documents
+        if (!$user->isPimpinan()) {
+            return false;
+        }
+
+        // Check if user is the recipient (pimpinan who should sign)
+        if ($document->to !== $user->id) {
+            return false;
         }
 
         // Check if user already signed
@@ -349,5 +378,69 @@ class SignatureController extends Controller
             ->exists();
 
         return !$existingSignature;
+    }
+
+    /**
+     * Verify document signature (public access)
+     */
+    public function verifyDocument(Document $document)
+    {
+        try {
+            // Get all signatures for this document
+            $signatures = $document->signatures()->with('user')->get();
+
+            // Get document info
+            $documentInfo = [
+                'id' => $document->id,
+                'title' => $document->title,
+                'number' => $document->number,
+                'created_at' => $document->created_at,
+                'status' => $document->review->status ?? 'pending',
+            ];
+
+            // Get signature info
+            $signatureInfo = $signatures->map(function ($signature) {
+                return [
+                    'id' => $signature->id,
+                    'type' => $signature->type,
+                    'user_name' => $signature->user->name ?? 'Unknown',
+                    'signed_at' => $signature->signedAt,
+                    'position' => [
+                        'x' => $signature->position_x,
+                        'y' => $signature->position_y,
+                        'width' => $signature->width,
+                        'height' => $signature->height,
+                        'page' => $signature->page_number,
+                    ],
+                ];
+            });
+
+            $verificationStatus = $signatures->count() > 0 ? 'signed' : 'unsigned';
+            $isVerified = $verificationStatus === 'signed';
+
+            return Inertia::render('Verification/Show', [
+                'document' => $documentInfo,
+                'signatures' => $signatureInfo,
+                'verification_status' => $verificationStatus,
+                'verified_at' => now()->toISOString(),
+                'success' => $isVerified,
+                'message' => $isVerified ? 'Dokumen berhasil diverifikasi' : 'Dokumen belum ditandatangani',
+            ]);
+        } catch (\Exception $e) {
+            return Inertia::render('Verification/Show', [
+                'document' => [
+                    'id' => $document->id,
+                    'title' => $document->title ?? 'Unknown Document',
+                    'number' => $document->number ?? 'N/A',
+                    'created_at' => $document->created_at ?? now(),
+                    'status' => 'error',
+                ],
+                'signatures' => [],
+                'verification_status' => 'error',
+                'verified_at' => now()->toISOString(),
+                'success' => false,
+                'message' => 'Gagal memverifikasi dokumen: ' . $e->getMessage(),
+            ]);
+        }
     }
 }

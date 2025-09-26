@@ -23,6 +23,12 @@ class EncryptionController extends Controller
     public function index()
     {
         $user = Auth::user();
+        
+        // Only pimpinan can access encryption keys
+        if (!$user->isPimpinan()) {
+            abort(403, 'Hanya pimpinan yang dapat mengakses kunci enkripsi');
+        }
+        
         $hasKeys = $this->encryptionService->hasKeys($user);
         $keyInfo = $hasKeys ? $this->encryptionService->getKeyInfo($user) : null;
 
@@ -38,13 +44,20 @@ class EncryptionController extends Controller
      */
     public function generateKeys(Request $request)
     {
+        $user = Auth::user();
+        
+        // Only pimpinan can generate encryption keys
+        if (!$user->isPimpinan()) {
+            return redirect()->route('encryption.index')
+                ->with('error', 'Hanya pimpinan yang dapat membuat kunci enkripsi');
+        }
+        
         $request->validate([
             'passphrase' => 'nullable|string|min:6',
             'confirm_passphrase' => 'nullable|string|same:passphrase',
         ]);
 
         try {
-            $user = Auth::user();
             
             // Log the attempt
             Log::info('Starting key generation via web interface', [

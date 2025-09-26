@@ -27,6 +27,7 @@ import {
     FileText,
     MessageSquare,
     Plus,
+    Trash2,
     User,
     XCircle,
 } from 'lucide-react';
@@ -126,12 +127,28 @@ export default function DocumentsShow({ document, user }: Props) {
     const canReview =
         (user.role === 'admin' || user.role === 'pimpinan') &&
         document.review.status === 'pending';
-    const canSign = document.review.status === 'approved';
+    const canSign = 
+        user.role === 'pimpinan' && 
+        document.review.status === 'approved' &&
+        document.to === user.id;
+
+    const handleDeleteSignature = (signatureId: string) => {
+        if (confirm('Apakah Anda yakin ingin menghapus tanda tangan ini?')) {
+            router.delete(`/signatures/${signatureId}`, {
+                onSuccess: () => {
+                    alert('Tanda tangan berhasil dihapus');
+                },
+                onError: (errors) => {
+                    alert('Gagal menghapus tanda tangan: ' + (Object.values(errors)[0] || 'Unknown error'));
+                }
+            });
+        }
+    };
 
     return (
         <AppLayout>
             <Head title={`Dokumen - ${document.title}`} />
-            <div className="flex h-full flex-1 flex-col gap-6 overflow-x-auto rounded-xl p-6">
+            <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-900">
@@ -164,8 +181,26 @@ export default function DocumentsShow({ document, user }: Props) {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                    <div className="space-y-6 lg:col-span-2">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <div className="space-y-4 lg:col-span-2">
+                        {/* PDF Viewer */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center">
+                                    <FileText className="mr-2 h-5 w-5" />
+                                    Preview Dokumen
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="rounded-lg border border-gray-300" style={{ height: '600px' }}>
+                                    <iframe
+                                        src={document.signatures.length > 0 ? `/documents/${document.id}/signed-pdf` : `/documents/${document.id}/pdf`}
+                                        className="h-full w-full rounded-lg"
+                                        title="Document Preview"
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center">
@@ -235,14 +270,16 @@ export default function DocumentsShow({ document, user }: Props) {
                                     <Button
                                         onClick={() =>
                                             window.open(
-                                                `/storage/documents/${document.files}`,
+                                                document.signatures.length > 0 
+                                                    ? `/documents/${document.id}/signed-pdf` 
+                                                    : `/storage/documents/${document.files}`,
                                                 '_blank',
                                             )
                                         }
                                         className="bg-blue-600 hover:bg-blue-700"
                                     >
                                         <Download className="mr-2 h-4 w-4" />
-                                        Download Dokumen
+                                        {document.signatures.length > 0 ? 'Download Dokumen (Signed)' : 'Download Dokumen'}
                                     </Button>
                                 </div>
                             </CardContent>
@@ -398,19 +435,31 @@ export default function DocumentsShow({ document, user }: Props) {
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    <Badge
-                                                        variant={
-                                                            signature.type ===
+                                                    <div className="flex items-center space-x-2">
+                                                        <Badge
+                                                            variant={
+                                                                signature.type ===
+                                                                'digital'
+                                                                    ? 'default'
+                                                                    : 'secondary'
+                                                            }
+                                                        >
+                                                            {signature.type ===
                                                             'digital'
-                                                                ? 'default'
-                                                                : 'secondary'
-                                                        }
-                                                    >
-                                                        {signature.type ===
-                                                        'digital'
-                                                            ? 'Digital'
-                                                            : 'Fisik'}
-                                                    </Badge>
+                                                                ? 'Digital'
+                                                                : 'Fisik'}
+                                                        </Badge>
+                                                        {user.role === 'pimpinan' && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleDeleteSignature(signature.id)}
+                                                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             ),
                                         )}
@@ -420,7 +469,7 @@ export default function DocumentsShow({ document, user }: Props) {
                         )}
                     </div>
 
-                    <div className="space-y-6">
+                    <div className="space-y-4">
                         <Card>
                             <CardHeader>
                                 <CardTitle>Status Review</CardTitle>

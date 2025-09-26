@@ -7,6 +7,9 @@ Route::get('/', function () {
     return Inertia::render('welcome');
 })->name('home');
 
+// Public verification route
+Route::get('verify-document/{document}', [App\Http\Controllers\SignatureController::class, 'verifyDocument'])->name('documents.verify');
+
 Route::middleware(['auth'])->group(function () {
     Route::get('dashboard', [App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
 
@@ -26,7 +29,7 @@ Route::middleware(['auth'])->group(function () {
     // Signatures
     Route::resource('signatures', App\Http\Controllers\SignatureController::class);
     Route::get('signatures/create', [App\Http\Controllers\SignatureController::class, 'create'])->name('signatures.create');
-    
+
     // Signature routes for documents
     Route::get('documents/{document}/sign', [App\Http\Controllers\SignatureController::class, 'show'])->name('documents.sign');
     Route::post('documents/{document}/sign/physical', [App\Http\Controllers\SignatureController::class, 'storePhysical'])->name('signatures.physical');
@@ -35,11 +38,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('documents/{document}/signed-pdf', [App\Http\Controllers\SignatureController::class, 'generateSignedPDF'])->name('documents.signed-pdf');
     Route::post('signatures/{signature}/verify', [App\Http\Controllers\SignatureController::class, 'verifyDigital'])->name('signatures.verify');
     Route::patch('signatures/{signature}/position', [App\Http\Controllers\SignatureController::class, 'updatePosition'])->name('signatures.position');
-    
+
     // File access routes
     Route::get('documents/{document}/pdf', [App\Http\Controllers\DocumentController::class, 'viewPDF'])->name('documents.pdf');
     Route::get('documents/{document}/signed-pdf/preview', [App\Http\Controllers\SignatureController::class, 'previewSignedPDF'])->name('documents.signed-pdf.preview');
-    
+
     // Encryption Keys Management
     Route::prefix('encryption')->name('encryption.')->group(function () {
         Route::get('/', [App\Http\Controllers\EncryptionController::class, 'index'])->name('index');

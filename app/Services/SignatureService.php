@@ -67,7 +67,7 @@ class SignatureService
 
         // Get document to sign
         $document = Document::findOrFail($documentId);
-        
+
         // Create digital signature hash
         $documentHash = $this->createDocumentHash($document);
         $digitalSignature = $this->encryptionService->signData($documentHash, $encryptionKey->privateKey, $data['passphrase'] ?? null);
@@ -115,27 +115,29 @@ class SignatureService
         for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
             $templateId = $pdf->importPage($pageNo);
             $size = $pdf->getTemplateSize($templateId);
-            
+
             // Add page ONCE for this original page
             $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
             $pdf->useTemplate($templateId);
 
             // Get ALL signatures for this page
             $pageSignatures = $signatures->where('page_number', $pageNo);
-            
-            // Apply ALL signatures to the SAME page
+
+            // Apply ONLY physical signatures to the page (digital signatures are for verification only)
             foreach ($pageSignatures as $signature) {
-                $this->applySignatureToPage($pdf, $signature, $size);
+                if ($signature->type === 'physical') {
+                    $this->applySignatureToPage($pdf, $signature, $size);
+                }
             }
-            
-            // Add QR code verification only on the last page
-            if ($pageNo === $pageCount && $pageSignatures->count() > 0) {
+
+            // Add QR code verification only on the last page if there are signatures
+            if ($pageNo === $pageCount && $signatures->count() > 0) {
                 $this->addVerificationQRCode($pdf, $document, $size);
             }
         }
 
         $pdf->Output($signedPath, 'F');
-        
+
         return $signedPath;
     }
 
@@ -165,18 +167,18 @@ class SignatureService
         try {
             $base64Data = preg_replace('/^data:image\/\w+;base64,/', '', $signature->signatureData);
             $imageData = base64_decode($base64Data);
-            
+
             if ($imageData === false) {
                 return;
             }
-            
+
             $tempPath = storage_path('app/temp_signature_' . uniqid() . '.png');
             file_put_contents($tempPath, $imageData);
-            
+
             if (!file_exists($tempPath)) {
                 return;
             }
-            
+
             $signaturePath = $tempPath;
         } catch (\Exception $e) {
             return;
@@ -185,37 +187,37 @@ class SignatureService
         // Get signature dimensions with defaults
         $sigWidth = $signature->width ?? 150;
         $sigHeight = $signature->height ?? 75;
-        
+
         // Get stored web coordinates
         $webX = $signature->position_x ?? 100;
         $webY = $signature->position_y ?? 100;
-        
+
         // Convert web coordinates to PDF coordinates
-        // Web viewer shows PDF in different dimensions than actual PDF points
-        
-        // Convert coordinates with minimal scaling
-        // Based on log: Page size is ~297x210, which suggests we're dealing with mm units
-        // Web coordinates seem to be in a different scale
-        
-        // Calculate scaling factors - but keep signature size reasonable
-        $webViewerWidth = 800;   
-        $webViewerHeight = 600;  // Reduced height to match aspect ratio
-        
+        // PDF viewer dimensions in the web interface (updated to match actual size)
+        $webViewerWidth = 800;
+        $webViewerHeight = 750;
+
+        // Account for PDF viewer toolbar and padding offset (approximately 120px total)
+        $toolbarOffset = 120;
+        $actualWebHeight = $webViewerHeight - $toolbarOffset;
+
+        // Calculate scaling factors
         $scaleX = $pageSize['width'] / $webViewerWidth;
-        $scaleY = $pageSize['height'] / $webViewerHeight;
-        
-        // Apply scaling to position
+        $scaleY = $pageSize['height'] / $actualWebHeight;
+
+        // Apply scaling to position with toolbar offset
         $x = $webX * $scaleX;
-        $y = ($webViewerHeight - $webY - 75) * $scaleY; // Use fixed signature height in calculation
-        
-        // Keep signature size larger - don't scale it too much
-        $minWidth = 40;  // Minimum signature width
-        $minHeight = 20; // Minimum signature height
-        
-        $sigWidth = max($sigWidth * $scaleX, $minWidth);
-        $sigHeight = max($sigHeight * $scaleY, $minHeight);
-        
-        Log::info("Signature positioning - Web: ({$webX}, {$webY}) -> PDF: ({$x}, {$y}) [Page: {$pageSize['width']}x{$pageSize['height']}, Sig: {$sigWidth}x{$sigHeight}]");
+        $y = ($webY - $toolbarOffset) * $scaleY;
+
+        // Scale signature size proportionally
+        $sigWidth = $sigWidth * $scaleX;
+        $sigHeight = $sigHeight * $scaleY;
+
+        // Ensure minimum size
+        $sigWidth = max($sigWidth, 20);
+        $sigHeight = max($sigHeight, 10);
+
+        Log::info("Signature positioning - Web: ({$webX}, {$webY}) -> PDF: ({$x}, {$y}) [Page: {$pageSize['width']}x{$pageSize['height']}, Sig: {$sigWidth}x{$sigHeight}, ToolbarOffset: {$toolbarOffset}]");
 
         $pdf->Image(
             $signaturePath,
@@ -226,26 +228,12 @@ class SignatureService
             'PNG'
         );
 
-        // Add signature info text
-        $pdf->SetFont('Arial', '', 8);
-        $pdf->SetXY($x, $y + $sigHeight + 2);
-        $pdf->Cell(
-            $sigWidth, 
-            5, 
-            'Signed by: ' . ($signature->user->name ?? 'Unknown'),
-            0, 
-            1, 
-            'C'
-        );
-        $pdf->SetXY($x, $y + $sigHeight + 7);
-        $pdf->Cell(
-            $sigWidth, 
-            5, 
-            'Date: ' . ($signature->signedAt ? $signature->signedAt->format('d/m/Y H:i') : date('d/m/Y H:i')),
-            0, 
-            1, 
-            'C'
-        );
+        // No text below signature - just the signature image
+
+        // Clean up temporary file
+        if (file_exists($tempPath)) {
+            unlink($tempPath);
+        }
     }
 
     /**
@@ -269,7 +257,7 @@ class SignatureService
         $pdf->SetFont('Arial', '', 8);
         $pdf->SetXY($x + 5, $y + 15);
         $pdf->Cell($signature->width - 10, 5, 'By: ' . $signature->user->name, 0, 1, 'L');
-        
+
         $pdf->SetXY($x + 5, $y + 22);
         $pdf->Cell($signature->width - 10, 5, 'Date: ' . $signature->signedAt->format('d/m/Y H:i:s'), 0, 1, 'L');
 
@@ -289,18 +277,18 @@ class SignatureService
     {
         // Remove data URL prefix if present
         $base64Data = preg_replace('/^data:image\/\w+;base64,/', '', $base64Data);
-        
+
         $imageData = base64_decode($base64Data);
         $filename = 'signatures/' . $userId . '/' . Str::uuid() . '.png';
-        
+
         // Ensure directory exists
         $directory = storage_path('app/' . dirname($filename));
         if (!file_exists($directory)) {
             mkdir($directory, 0755, true);
         }
-        
+
         Storage::put($filename, $imageData);
-        
+
         return $filename;
     }
 
@@ -311,7 +299,7 @@ class SignatureService
     {
         $documentPath = storage_path('app/public/documents/' . $document->files);
         $documentContent = file_get_contents($documentPath);
-        
+
         return hash('sha256', $documentContent . $document->id . now()->timestamp);
     }
 
@@ -324,41 +312,36 @@ class SignatureService
             // Create verification URL
             $baseUrl = config('app.url', 'http://localhost:8000');
             $verificationUrl = $baseUrl . "/verify-document/" . $document->id;
-            
+
             // Generate QR code
             $qrCode = new QrCode($verificationUrl);
-            
+
             $writer = new PngWriter();
             $result = $writer->write($qrCode);
-            
+
             // Save QR code temporarily
             $qrPath = storage_path('app/temp_qr_' . uniqid() . '.png');
             file_put_contents($qrPath, $result->getString());
-            
+
             Log::info("QR Code generated: {$verificationUrl}, saved to: {$qrPath}");
-            
+
             // Position QR code at bottom right corner
-            $qrSize = 25; // Size in PDF units
+            $qrSize = 15; // Smaller QR code size
             $margin = 10;
             $x = $pageSize['width'] - $qrSize - $margin;
             $y = $pageSize['height'] - $qrSize - $margin;
-            
+
             // Add QR code to PDF
             $pdf->Image($qrPath, $x, $y, $qrSize, $qrSize, 'PNG');
-            
-            // Add verification text
-            $pdf->SetFont('Arial', '', 6);
-            $pdf->SetTextColor(100, 100, 100);
-            $pdf->SetXY($x - 15, $y + $qrSize + 2);
-            $pdf->Cell($qrSize + 30, 3, 'Scan to verify signature', 0, 0, 'C');
-            
+
+            // No text below QR code to prevent page overflow
+
             Log::info("QR Code added to PDF at position: ({$x}, {$y})");
-            
+
             // Clean up temporary QR file
             if (file_exists($qrPath)) {
                 unlink($qrPath);
             }
-            
         } catch (\Exception $e) {
             Log::error('Failed to add QR code: ' . $e->getMessage() . ' - Stack: ' . $e->getTraceAsString());
         }
@@ -394,11 +377,11 @@ class SignatureService
         }
 
         $signatureData = base64_decode($signature->digital_signature);
-        
+
         return openssl_verify(
-            $signature->signatureHash, 
-            $signatureData, 
-            $publicKeyResource, 
+            $signature->signatureHash,
+            $signatureData,
+            $publicKeyResource,
             OPENSSL_ALGO_SHA256
         ) === 1;
     }
@@ -410,8 +393,14 @@ class SignatureService
     {
         return $document->signatures()
             ->select([
-                'id', 'type', 'position_x', 'position_y', 
-                'width', 'height', 'page_number', 'signedAt'
+                'id',
+                'type',
+                'position_x',
+                'position_y',
+                'width',
+                'height',
+                'page_number',
+                'signedAt'
             ])
             ->with('user:id,name')
             ->get()
