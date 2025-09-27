@@ -5,6 +5,7 @@ echo "🚀 Deploying SISIGN to production..."
 # Set production environment variables
 export APP_ENV=production
 export APP_URL=https://sisign.siunand.my.id
+export ASSET_URL=https://sisign.siunand.my.id
 export NODE_ENV=production
 
 # Install dependencies

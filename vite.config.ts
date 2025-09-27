@@ -35,5 +35,8 @@ export default defineConfig({
             },
         },
     },
-    base: process.env.NODE_ENV === 'production' ? 'https://sisign.siunand.my.id/' : '/',
+    base:
+        process.env.NODE_ENV === 'production'
+            ? 'https://sisign.siunand.my.id/'
+            : '/',
 });
