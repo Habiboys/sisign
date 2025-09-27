@@ -1,0 +1,27 @@
+services:
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        ports:
+            - '8000:8000'
+        env_file:
+            - .env
+        volumes:
+            - ./storage:/var/www/html/storage
+            - ./public/storage:/var/www/html/public/storage
+        networks:
+            - silab_network
+        command: >
+            sh -c "
+              mkdir -p /var/www/html/bootstrap/cache &&
+              mkdir -p /var/www/html/public/storage &&
+              chmod -R 775 /var/www/html/bootstrap/cache &&
+              chmod -R 775 /var/www/html/storage &&
+              chmod -R 775 /var/www/html/public/storage &&
+              /start.sh
+            "
+
+networks:
+    silab_network:
+        driver: bridge

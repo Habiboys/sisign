@@ -1,7 +1,10 @@
+import AlertModal from '@/components/ui/alert-modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Eraser, PenTool, Save, Trash2 } from 'lucide-react';
+import { useModal } from '@/hooks/use-modal';
+import { useToast } from '@/hooks/use-toast';
+import { Eraser, Image, PenTool, Save, Stamp, Trash2, X } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,21 +33,64 @@ export default function PDFCanvasViewer({
     const [totalPages, setTotalPages] = useState(1);
     const [passphrase, setPassphrase] = useState<string>('');
     const [isProcessing, setIsProcessing] = useState(false);
-    const [drawingMode, setDrawingMode] = useState<'pen' | 'eraser'>('pen');
+    const [drawingMode, setDrawingMode] = useState<'pen' | 'eraser' | 'stamp'>(
+        'pen',
+    );
     const [penSize, setPenSize] = useState(3);
     const [penColor, setPenColor] = useState('#000000');
 
+    // Stamp states
+    const [stampImage, setStampImage] = useState<string | null>(null);
+    const [stampPosition, setStampPosition] = useState<{
+        x: number;
+        y: number;
+    } | null>(null);
+    const [stampSize, setStampSize] = useState(100);
+    const [isDraggingStamp, setIsDraggingStamp] = useState(false);
+
+    // Store previous canvas content to preserve drawings
+    const [previousCanvasContent, setPreviousCanvasContent] = useState<
+        string | null
+    >(null);
+
+    const { error } = useToast();
+    const alertModal = useModal();
+    const [alertData, setAlertData] = useState({
+        title: '',
+        description: '',
+        type: 'info' as const,
+    });
+
     const startDrawing = useCallback(
-        (e: React.MouseEvent<HTMLCanvasElement>) => {
+        (
+            e:
+                | React.MouseEvent<HTMLCanvasElement>
+                | React.TouchEvent<HTMLCanvasElement>,
+        ) => {
             if (!canEdit) return;
+
+            // Prevent default to avoid scrolling on mobile
+            e.preventDefault();
 
             setIsDrawing(true);
             const canvas = canvasRef.current;
             if (!canvas) return;
 
+            // Handle both mouse and touch events
+            let clientX: number, clientY: number;
+            if (e.type === 'touchstart') {
+                const touch = (e as React.TouchEvent).touches[0];
+                clientX = touch.clientX;
+                clientY = touch.clientY;
+            } else {
+                const mouse = e as React.MouseEvent;
+                clientX = mouse.clientX;
+                clientY = mouse.clientY;
+            }
+
             const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
 
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
@@ -56,15 +102,34 @@ export default function PDFCanvasViewer({
     );
 
     const draw = useCallback(
-        (e: React.MouseEvent<HTMLCanvasElement>) => {
+        (
+            e:
+                | React.MouseEvent<HTMLCanvasElement>
+                | React.TouchEvent<HTMLCanvasElement>,
+        ) => {
             if (!isDrawing || !canEdit) return;
+
+            // Prevent default to avoid scrolling on mobile
+            e.preventDefault();
 
             const canvas = canvasRef.current;
             if (!canvas) return;
 
+            // Handle both mouse and touch events
+            let clientX: number, clientY: number;
+            if (e.type === 'touchmove') {
+                const touch = (e as React.TouchEvent).touches[0];
+                clientX = touch.clientX;
+                clientY = touch.clientY;
+            } else {
+                const mouse = e as React.MouseEvent;
+                clientX = mouse.clientX;
+                clientY = mouse.clientY;
+            }
+
             const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
 
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
@@ -109,6 +174,153 @@ export default function PDFCanvasViewer({
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     }, []);
+
+    // Save current canvas content
+    const saveCanvasContent = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const content = canvas.toDataURL();
+        setPreviousCanvasContent(content);
+    }, []);
+
+    // Stamp handling functions
+    const handleStampUpload = useCallback(
+        (event: React.ChangeEvent<HTMLInputElement>) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                setAlertData({
+                    title: 'File Tidak Valid',
+                    description:
+                        'Hanya file gambar yang diperbolehkan (JPG, PNG, GIF)',
+                    type: 'info',
+                });
+                alertModal.open();
+                return;
+            }
+
+            // Validate file size (max 2MB)
+            if (file.size > 2 * 1024 * 1024) {
+                setAlertData({
+                    title: 'File Terlalu Besar',
+                    description: 'Ukuran file maksimal 2MB',
+                    type: 'info',
+                });
+                alertModal.open();
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const result = e.target?.result as string;
+
+                // Save current canvas content before adding stamp
+                saveCanvasContent();
+
+                setStampImage(result);
+                setStampPosition({ x: 100, y: 100 }); // Default position
+                setDrawingMode('stamp');
+            };
+            reader.readAsDataURL(file);
+        },
+        [alertModal, saveCanvasContent],
+    );
+
+    const removeStamp = useCallback(() => {
+        setStampImage(null);
+        setStampPosition(null);
+        setDrawingMode('pen');
+
+        // Restore previous canvas content when removing stamp
+        if (previousCanvasContent) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    const img = new window.Image();
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0);
+                    };
+                    img.src = previousCanvasContent;
+                }
+            }
+        }
+    }, [previousCanvasContent]);
+
+    const handleStampClick = useCallback(
+        (
+            e:
+                | React.MouseEvent<HTMLCanvasElement>
+                | React.TouchEvent<HTMLCanvasElement>,
+        ) => {
+            if (drawingMode !== 'stamp' || !stampImage) return;
+
+            // Prevent default to avoid scrolling on mobile
+            e.preventDefault();
+
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+
+            // Handle both mouse and touch events
+            let clientX: number, clientY: number;
+            if (e.type === 'touchstart') {
+                const touch = (e as React.TouchEvent).touches[0];
+                clientX = touch.clientX;
+                clientY = touch.clientY;
+            } else {
+                const mouse = e as React.MouseEvent;
+                clientX = mouse.clientX;
+                clientY = mouse.clientY;
+            }
+
+            const rect = canvas.getBoundingClientRect();
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            console.log('Stamp clicked at:', {
+                x,
+                y,
+                canvasSize: `${canvas.width}x${canvas.height}`,
+            });
+            setStampPosition({ x, y });
+        },
+        [drawingMode, stampImage],
+    );
+
+    // Handle wheel scroll for stamp resizing
+    const handleWheel = useCallback(
+        (e: React.WheelEvent<HTMLCanvasElement>) => {
+            if (drawingMode !== 'stamp' || !stampImage) return;
+
+            e.preventDefault();
+
+            // Increase/decrease stamp size based on wheel direction
+            const delta = e.deltaY > 0 ? -10 : 10;
+            const newSize = Math.max(50, Math.min(300, stampSize + delta));
+
+            setStampSize(newSize);
+
+            console.log('Stamp size changed:', {
+                oldSize: stampSize,
+                newSize,
+                delta,
+            });
+        },
+        [drawingMode, stampImage, stampSize],
+    );
+
+    const clearAll = useCallback(() => {
+        clearCanvas();
+        if (stampImage) {
+            removeStamp();
+        }
+        // Reset canvas content state
+        setPreviousCanvasContent(null);
+    }, [clearCanvas, stampImage, removeStamp]);
 
     const loadPDF = useCallback(async () => {
         try {
@@ -186,7 +398,24 @@ export default function PDFCanvasViewer({
         });
 
         if (!hasContent) {
-            alert('Silakan buat tanda tangan terlebih dahulu');
+            setAlertData({
+                title: 'Belum Ada Tanda Tangan',
+                description: 'Silakan buat tanda tangan terlebih dahulu.',
+                type: 'info',
+            });
+            alertModal.open();
+            return;
+        }
+
+        // Validate passphrase is required
+        if (!passphrase || passphrase.trim() === '') {
+            setAlertData({
+                title: 'Passphrase Diperlukan',
+                description:
+                    'Passphrase harus diisi untuk keamanan digital signature.',
+                type: 'info',
+            });
+            alertModal.open();
             return;
         }
 
@@ -258,6 +487,56 @@ export default function PDFCanvasViewer({
             });
             console.log('Signature drawn on PDF');
 
+            // Embed stamp if exists
+            if (stampImage && stampPosition) {
+                let stampImageEmbedded;
+                try {
+                    // Try PNG first
+                    stampImageEmbedded = await pdfDoc.embedPng(stampImage);
+                    console.log('Stamp embedded as PNG successfully');
+                } catch (pngError) {
+                    try {
+                        // Try JPEG if PNG fails
+                        stampImageEmbedded = await pdfDoc.embedJpg(stampImage);
+                        console.log('Stamp embedded as JPEG successfully');
+                    } catch (jpegError) {
+                        console.error('Failed to embed stamp:', {
+                            pngError,
+                            jpegError,
+                        });
+                        setAlertData({
+                            title: 'Format Stempel Tidak Didukung',
+                            description:
+                                'Format gambar stempel tidak didukung. Gunakan PNG atau JPG.',
+                            type: 'info',
+                        });
+                        alertModal.open();
+                        return;
+                    }
+                }
+
+                // Scale stamp position and size to match PDF coordinates
+                const scaledStampX = stampPosition.x * canvasToPageScale;
+                const scaledStampY =
+                    (canvas.height - stampPosition.y) * canvasToPageScale; // Flip Y coordinate
+                const scaledStampSize = stampSize * canvasToPageScale;
+
+                console.log('Stamp positioning:', {
+                    originalPosition: stampPosition,
+                    originalSize: stampSize,
+                    scaledPosition: { x: scaledStampX, y: scaledStampY },
+                    scaledSize: scaledStampSize,
+                });
+
+                page.drawImage(stampImageEmbedded, {
+                    x: scaledStampX - scaledStampSize / 2,
+                    y: scaledStampY - scaledStampSize / 2,
+                    width: scaledStampSize,
+                    height: scaledStampSize,
+                });
+                console.log('Stamp drawn on PDF');
+            }
+
             // Generate QR code image with verification link
             const baseUrl = window.location.origin;
             const qrCodeData = `${baseUrl}/verify-document/${documentId}`;
@@ -326,12 +605,19 @@ export default function PDFCanvasViewer({
                 });
             } catch (error) {
                 console.error('PDF validation failed:', error);
+                const errorMessage =
+                    error instanceof Error ? error.message : 'Unknown error';
                 console.error('PDF validation error details:', {
-                    message: error.message,
-                    stack: error.stack,
-                    name: error.name,
+                    message: errorMessage,
+                    stack: error instanceof Error ? error.stack : undefined,
+                    name: error instanceof Error ? error.name : 'Unknown',
                 });
-                alert('PDF yang dihasilkan rusak: ' + error.message);
+                setAlertData({
+                    title: 'PDF Rusak',
+                    description: 'PDF yang dihasilkan rusak: ' + errorMessage,
+                    type: 'info',
+                });
+                alertModal.open();
                 setIsProcessing(false);
                 return;
             }
@@ -343,12 +629,39 @@ export default function PDFCanvasViewer({
             clearCanvas();
         } catch (error) {
             console.error('Error processing signature:', error);
+
+            let errorMessage = 'Unknown error';
+            let errorTitle = 'Gagal Memproses';
+
+            if (error instanceof Error) {
+                errorMessage = error.message;
+
+                // Specific error messages for common issues
+                if (error.message.includes('not a PNG file')) {
+                    errorTitle = 'Format Gambar Tidak Didukung';
+                    errorMessage =
+                        'Format gambar stempel tidak didukung. Gunakan PNG atau JPG.';
+                } else if (error.message.includes('not a JPEG file')) {
+                    errorTitle = 'Format JPEG Tidak Valid';
+                    errorMessage = 'File JPEG tidak valid atau rusak.';
+                } else if (error.message.includes('Maximum call stack')) {
+                    errorTitle = 'File Terlalu Besar';
+                    errorMessage = 'File PDF terlalu besar untuk diproses.';
+                }
+            }
+
             console.error('Error details:', {
-                message: error.message,
-                stack: error.stack,
-                name: error.name,
+                message: errorMessage,
+                stack: error instanceof Error ? error.stack : undefined,
+                name: error instanceof Error ? error.name : 'Unknown',
             });
-            alert('Gagal memproses tanda tangan: ' + error.message);
+
+            setAlertData({
+                title: errorTitle,
+                description: errorMessage,
+                type: 'info',
+            });
+            alertModal.open();
         } finally {
             setIsProcessing(false);
         }
@@ -357,6 +670,59 @@ export default function PDFCanvasViewer({
     useEffect(() => {
         loadPDF();
     }, [loadPDF]);
+
+    // Redraw stamp only (preserve existing drawings)
+    const redrawStamp = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // If we have previous content, restore it first
+        if (previousCanvasContent) {
+            const img = new window.Image();
+            img.onload = () => {
+                // Clear canvas and restore previous content
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+
+                // Then draw stamp on top if exists
+                if (stampImage && stampPosition) {
+                    const stampImg = new window.Image();
+                    stampImg.onload = () => {
+                        const stampX = stampPosition.x - stampSize / 2;
+                        const stampY = stampPosition.y - stampSize / 2;
+
+                        ctx.drawImage(
+                            stampImg,
+                            stampX,
+                            stampY,
+                            stampSize,
+                            stampSize,
+                        );
+                    };
+                    stampImg.src = stampImage;
+                }
+            };
+            img.src = previousCanvasContent;
+        } else if (stampImage && stampPosition) {
+            // No previous content, just draw stamp
+            const img = new window.Image();
+            img.onload = () => {
+                const stampX = stampPosition.x - stampSize / 2;
+                const stampY = stampPosition.y - stampSize / 2;
+
+                ctx.drawImage(img, stampX, stampY, stampSize, stampSize);
+            };
+            img.src = stampImage;
+        }
+    }, [stampImage, stampPosition, stampSize, previousCanvasContent]);
+
+    // Render stamp on canvas
+    useEffect(() => {
+        redrawStamp();
+    }, [redrawStamp]);
 
     return (
         <div className="space-y-4">
@@ -371,8 +737,26 @@ export default function PDFCanvasViewer({
                         </li>
                         <li>• Gunakan tools di bawah untuk menggambar</li>
                         <li>
-                            • TTD akan langsung digambar di PDF dengan koordinat
-                            yang tepat
+                            • Upload stempel/gambar untuk menambah stempel resmi
+                        </li>
+                        <li>
+                            • Klik tombol "Stempel" lalu klik di PDF untuk
+                            menempatkan stempel
+                        </li>
+                        <li>
+                            • Perbesar/perkecil stempel dengan scroll mouse atau
+                            slider
+                        </li>
+                        <li>
+                            •{' '}
+                            <span className="font-medium text-red-600">
+                                Passphrase wajib diisi
+                            </span>{' '}
+                            untuk keamanan digital signature
+                        </li>
+                        <li>
+                            • TTD dan stempel akan langsung digambar di PDF
+                            dengan koordinat yang tepat
                         </li>
                     </ul>
                 </div>
@@ -388,12 +772,32 @@ export default function PDFCanvasViewer({
                     {canEdit && (
                         <canvas
                             ref={canvasRef}
-                            className="absolute inset-0 cursor-crosshair rounded-lg"
-                            style={{ maxWidth: '100%', height: 'auto' }}
-                            onMouseDown={startDrawing}
+                            className={`absolute inset-0 rounded-lg ${
+                                drawingMode === 'stamp'
+                                    ? 'cursor-move'
+                                    : 'cursor-crosshair'
+                            }`}
+                            style={{
+                                maxWidth: '100%',
+                                height: 'auto',
+                                touchAction: 'none',
+                            }}
+                            onMouseDown={
+                                drawingMode === 'stamp'
+                                    ? handleStampClick
+                                    : startDrawing
+                            }
                             onMouseMove={draw}
                             onMouseUp={stopDrawing}
                             onMouseLeave={stopDrawing}
+                            onTouchStart={
+                                drawingMode === 'stamp'
+                                    ? handleStampClick
+                                    : startDrawing
+                            }
+                            onTouchMove={draw}
+                            onTouchEnd={stopDrawing}
+                            onWheel={handleWheel}
                         />
                     )}
                 </div>
@@ -401,7 +805,7 @@ export default function PDFCanvasViewer({
 
             {canEdit && (
                 <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-4 rounded-lg bg-gray-50 p-4">
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2 sm:gap-4 sm:p-4">
                         <div className="flex items-center space-x-2">
                             <Button
                                 variant={
@@ -410,10 +814,11 @@ export default function PDFCanvasViewer({
                                         : 'outline'
                                 }
                                 size="sm"
+                                className="px-2 text-xs sm:px-3 sm:text-sm"
                                 onClick={() => setDrawingMode('pen')}
                             >
-                                <PenTool className="mr-1 h-4 w-4" />
-                                Pen
+                                <PenTool className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline">Pen</span>
                             </Button>
                             <Button
                                 variant={
@@ -422,19 +827,90 @@ export default function PDFCanvasViewer({
                                         : 'outline'
                                 }
                                 size="sm"
+                                className="px-2 text-xs sm:px-3 sm:text-sm"
                                 onClick={() => setDrawingMode('eraser')}
                             >
-                                <Eraser className="mr-1 h-4 w-4" />
-                                Eraser
+                                <Eraser className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline">Eraser</span>
                             </Button>
                         </div>
 
+                        {/* Stamp Controls */}
                         <div className="flex items-center space-x-2">
+                            <Button
+                                variant={
+                                    drawingMode === 'stamp'
+                                        ? 'default'
+                                        : 'outline'
+                                }
+                                size="sm"
+                                className={`px-2 text-xs sm:px-3 sm:text-sm ${
+                                    drawingMode === 'stamp'
+                                        ? 'bg-blue-600 text-white'
+                                        : ''
+                                }`}
+                                onClick={() =>
+                                    stampImage && setDrawingMode('stamp')
+                                }
+                                disabled={!stampImage}
+                            >
+                                <Stamp className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline">
+                                    {drawingMode === 'stamp'
+                                        ? 'Mode Stempel'
+                                        : 'Stempel'}
+                                </span>
+                                <span className="sm:hidden">
+                                    {drawingMode === 'stamp' ? 'Stempel' : 'ST'}
+                                </span>
+                            </Button>
+
+                            <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleStampUpload}
+                                className="hidden"
+                                id="stamp-upload"
+                            />
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="px-2 text-xs sm:px-3 sm:text-sm"
+                                onClick={() =>
+                                    document
+                                        .getElementById('stamp-upload')
+                                        ?.click()
+                                }
+                            >
+                                <Image className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline">
+                                    Upload Gambar
+                                </span>
+                                <span className="sm:hidden">Upload</span>
+                            </Button>
+
+                            {stampImage && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 sm:px-3 sm:text-sm"
+                                    onClick={removeStamp}
+                                >
+                                    <X className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="hidden sm:inline">
+                                        Hapus
+                                    </span>
+                                </Button>
+                            )}
+                        </div>
+
+                        <div className="flex items-center space-x-1 sm:space-x-2">
                             <Label
                                 htmlFor="penSize"
-                                className="text-sm font-medium"
+                                className="text-xs font-medium sm:text-sm"
                             >
-                                Size:
+                                <span className="hidden sm:inline">Size:</span>
+                                <span className="sm:hidden">S:</span>
                             </Label>
                             <Input
                                 id="penSize"
@@ -445,37 +921,109 @@ export default function PDFCanvasViewer({
                                 onChange={(e) =>
                                     setPenSize(Number(e.target.value))
                                 }
-                                className="w-20"
+                                className="w-12 sm:w-20"
                             />
-                            <span className="min-w-[30px] text-sm text-gray-500">
-                                {penSize}px
+                            <span className="min-w-[25px] text-xs text-gray-500 sm:min-w-[30px] sm:text-sm">
+                                {penSize}
                             </span>
                         </div>
 
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-1 sm:space-x-2">
                             <Label
                                 htmlFor="penColor"
-                                className="text-sm font-medium"
+                                className="text-xs font-medium sm:text-sm"
                             >
-                                Color:
+                                <span className="hidden sm:inline">Color:</span>
+                                <span className="sm:hidden">C:</span>
                             </Label>
                             <Input
                                 id="penColor"
                                 type="color"
                                 value={penColor}
                                 onChange={(e) => setPenColor(e.target.value)}
-                                className="h-8 w-12 rounded border border-gray-300 p-1"
+                                className="h-6 w-8 rounded border border-gray-300 p-1 sm:h-8 sm:w-12"
                             />
                         </div>
+
+                        {/* Stamp Size Controls - Only show when stamp is active */}
+                        {stampImage && (
+                            <div className="flex flex-col space-y-2">
+                                <div className="flex items-center space-x-1 sm:space-x-2">
+                                    <Label
+                                        htmlFor="stampSize"
+                                        className="text-xs font-medium sm:text-sm"
+                                    >
+                                        <span className="hidden sm:inline">
+                                            Size:
+                                        </span>
+                                        <span className="sm:hidden">S:</span>
+                                    </Label>
+                                    <Input
+                                        id="stampSize"
+                                        type="range"
+                                        min="30"
+                                        max="300"
+                                        step="10"
+                                        value={stampSize}
+                                        onChange={(e) =>
+                                            setStampSize(Number(e.target.value))
+                                        }
+                                        className="w-16 sm:w-24"
+                                    />
+                                    <span className="min-w-[25px] text-xs text-gray-500 sm:min-w-[30px] sm:text-sm">
+                                        {stampSize}px
+                                    </span>
+                                </div>
+
+                                {/* Quick Size Presets */}
+                                <div className="flex items-center space-x-1">
+                                    <span className="text-xs text-gray-500">
+                                        Quick:
+                                    </span>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => setStampSize(50)}
+                                    >
+                                        S
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => setStampSize(100)}
+                                    >
+                                        M
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => setStampSize(150)}
+                                    >
+                                        L
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => setStampSize(200)}
+                                    >
+                                        XL
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
 
                         <Button
                             variant="outline"
                             size="sm"
-                            onClick={clearCanvas}
-                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                            onClick={clearAll}
+                            className="px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 sm:px-3 sm:text-sm"
                         >
-                            <Trash2 className="mr-1 h-4 w-4" />
-                            Clear
+                            <Trash2 className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                            <span className="hidden sm:inline">Clear</span>
                         </Button>
                     </div>
 
@@ -483,32 +1031,55 @@ export default function PDFCanvasViewer({
                         <div className="space-y-2">
                             <Label
                                 htmlFor="passphrase"
-                                className="text-sm font-medium"
+                                className="text-xs font-medium sm:text-sm"
                             >
-                                Passphrase untuk Digital Signature (Opsional)
+                                <span className="hidden sm:inline">
+                                    Passphrase untuk Digital Signature
+                                    <span className="ml-1 font-medium text-red-500">
+                                        *
+                                    </span>
+                                </span>
+                                <span className="sm:hidden">
+                                    Passphrase
+                                    <span className="ml-1 font-medium text-red-500">
+                                        *
+                                    </span>
+                                </span>
                             </Label>
                             <Input
                                 id="passphrase"
                                 type="password"
                                 value={passphrase}
                                 onChange={(e) => setPassphrase(e.target.value)}
-                                placeholder="Masukkan passphrase untuk keamanan tambahan"
+                                placeholder="Masukkan passphrase (wajib diisi)"
                                 className="w-full"
+                                required
                             />
                             <p className="text-xs text-gray-500">
-                                Passphrase akan digunakan untuk melindungi
-                                private key digital signature Anda. Kosongkan
-                                jika tidak ingin menggunakan passphrase.
+                                <span className="hidden sm:inline">
+                                    Passphrase wajib diisi untuk melindungi
+                                    private key digital signature Anda.
+                                    <span className="font-medium text-red-500">
+                                        *
+                                    </span>
+                                </span>
+                                <span className="sm:hidden">
+                                    Wajib diisi untuk keamanan digital
+                                    signature.
+                                    <span className="font-medium text-red-500">
+                                        *
+                                    </span>
+                                </span>
                             </p>
                         </div>
 
                         <div className="flex items-end">
                             <Button
                                 onClick={handleSave}
-                                className="w-full bg-green-600 hover:bg-green-700 md:w-auto"
+                                className="w-full bg-green-600 px-3 py-2 text-xs hover:bg-green-700 sm:px-4 sm:text-sm md:w-auto"
                                 disabled={isProcessing}
                             >
-                                <Save className="mr-2 h-4 w-4" />
+                                <Save className="mr-1 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
                                 {isProcessing ? 'Memproses...' : 'Simpan TTD'}
                             </Button>
                         </div>
@@ -516,11 +1087,11 @@ export default function PDFCanvasViewer({
                 </div>
             )}
 
-            <div className="flex flex-col items-center justify-between gap-4 rounded-lg bg-gray-50 p-4 sm:flex-row">
-                <span className="text-sm font-medium text-gray-700">
+            <div className="flex flex-col items-center justify-between gap-2 rounded-lg bg-gray-50 p-2 sm:flex-row sm:gap-4 sm:p-4">
+                <span className="text-xs font-medium text-gray-700 sm:text-sm">
                     Halaman {currentPage} dari {totalPages}
                 </span>
-                <div className="flex space-x-2">
+                <div className="flex space-x-1 sm:space-x-2">
                     <Button
                         variant="outline"
                         size="sm"
@@ -528,9 +1099,10 @@ export default function PDFCanvasViewer({
                             setCurrentPage(Math.max(1, currentPage - 1))
                         }
                         disabled={currentPage === 1}
-                        className="min-w-[80px]"
+                        className="min-w-[60px] text-xs sm:min-w-[80px] sm:text-sm"
                     >
-                        Previous
+                        <span className="hidden sm:inline">Previous</span>
+                        <span className="sm:hidden">Prev</span>
                     </Button>
                     <Button
                         variant="outline"
@@ -541,12 +1113,21 @@ export default function PDFCanvasViewer({
                             )
                         }
                         disabled={currentPage === totalPages}
-                        className="min-w-[80px]"
+                        className="min-w-[60px] text-xs sm:min-w-[80px] sm:text-sm"
                     >
                         Next
                     </Button>
                 </div>
             </div>
+
+            {/* Alert Modal */}
+            <AlertModal
+                open={alertModal.isOpen}
+                onClose={alertModal.close}
+                title={alertData.title}
+                description={alertData.description}
+                type={alertData.type}
+            />
         </div>
     );
 }

@@ -1,6 +1,10 @@
 import PDFCanvasViewer from '@/components/PDFCanvasViewer';
+import AlertModal from '@/components/ui/alert-modal';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import ConfirmModal from '@/components/ui/confirm-modal';
+import { useModal } from '@/hooks/use-modal';
+import { useToast } from '@/hooks/use-toast';
 import AppSidebarLayout from '@/layouts/app/app-sidebar-layout';
 import { Head, router } from '@inertiajs/react';
 import { Trash2 } from 'lucide-react';
@@ -51,19 +55,40 @@ export default function SignDocument({
     const [signatures, setSignatures] =
         useState<SignaturePosition[]>(existingSignatures);
 
+    const { success, error } = useToast();
+    const deleteModal = useModal();
+    const alertModal = useModal();
+    const [alertData, setAlertData] = useState({
+        title: '',
+        description: '',
+        type: 'info' as const,
+    });
+    const [deleteSignatureId, setDeleteSignatureId] = useState<string>('');
+
     const handleSignatureComplete = (
         signatureData: string,
         passphrase?: string,
         signedPdfBase64?: string,
     ) => {
         if (!canSign) {
-            alert('You are not authorized to sign this document');
+            setAlertData({
+                title: 'Akses Ditolak',
+                description:
+                    'Anda tidak memiliki izin untuk menandatangani dokumen ini.',
+                type: 'info',
+            });
+            alertModal.open();
             return;
         }
 
         if (!hasEncryptionKeys) {
-            alert('You need to generate encryption keys first');
-            window.location.href = '/encryption';
+            setAlertData({
+                title: 'Kunci Enkripsi Diperlukan',
+                description:
+                    'Anda perlu membuat kunci enkripsi terlebih dahulu.',
+                type: 'info',
+            });
+            alertModal.open();
             return;
         }
 
@@ -106,6 +131,8 @@ export default function SignDocument({
             },
             {
                 onSuccess: () => {
+                    success('Tanda tangan berhasil ditambahkan!');
+
                     // Add only physical signature to local state immediately (digital signature is for backend only)
                     const physicalSignature: SignaturePosition = {
                         id: Date.now().toString() + '_physical',
@@ -131,8 +158,8 @@ export default function SignDocument({
                     const errorMessage =
                         errors.error ||
                         Object.values(errors)[0] ||
-                        'Unknown error';
-                    alert('Failed to add signature: ' + errorMessage);
+                        'Terjadi kesalahan yang tidak diketahui';
+                    error('Gagal menambahkan tanda tangan: ' + errorMessage);
                 },
             },
         );
@@ -166,13 +193,14 @@ export default function SignDocument({
                             : sig,
                     ),
                 );
-                alert('Signature position updated');
+                success('Posisi tanda tangan berhasil diperbarui');
             },
             onError: (errors) => {
                 console.error('Position update errors:', errors);
-                alert(
-                    'Failed to update signature position: ' +
-                        (Object.values(errors)[0] || 'Unknown error'),
+                error(
+                    'Gagal memperbarui posisi tanda tangan: ' +
+                        (Object.values(errors)[0] ||
+                            'Terjadi kesalahan yang tidak diketahui'),
                 );
             },
         });
@@ -183,46 +211,55 @@ export default function SignDocument({
     };
 
     const handleDeleteSignature = (signatureId: string) => {
-        if (confirm('Apakah Anda yakin ingin menghapus tanda tangan ini?')) {
-            router.delete(`/signatures/${signatureId}`, {
-                onSuccess: () => {
-                    setSignatures((prev) =>
-                        prev.filter((sig) => sig.id !== signatureId),
-                    );
-                    alert('Tanda tangan berhasil dihapus');
-                },
-                onError: (errors) => {
-                    alert(
-                        'Gagal menghapus tanda tangan: ' +
-                            (Object.values(errors)[0] || 'Unknown error'),
-                    );
-                },
-            });
-        }
+        setDeleteSignatureId(signatureId);
+        deleteModal.open();
+    };
+
+    const confirmDeleteSignature = () => {
+        router.delete(`/signatures/${deleteSignatureId}`, {
+            onSuccess: () => {
+                setSignatures((prev) =>
+                    prev.filter((sig) => sig.id !== deleteSignatureId),
+                );
+                success('Tanda tangan berhasil dihapus');
+                setDeleteSignatureId('');
+            },
+            onError: (errors) => {
+                error(
+                    'Gagal menghapus tanda tangan: ' +
+                        (Object.values(errors)[0] ||
+                            'Terjadi kesalahan yang tidak diketahui'),
+                );
+            },
+        });
     };
 
     return (
         <AppSidebarLayout>
             <Head title={`Sign Document: ${document.title}`} />
 
-            <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
+            <div className="flex h-full flex-1 flex-col gap-2 overflow-x-auto rounded-xl p-2 sm:gap-4 sm:p-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900">
+                        <h1 className="text-xl font-bold text-gray-900 sm:text-3xl">
                             Sign Document
                         </h1>
-                        <p className="text-gray-600">{document.title}</p>
+                        <p className="text-sm break-words text-gray-600 sm:text-base">
+                            {document.title}
+                        </p>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-2 sm:gap-4 lg:grid-cols-4">
                     {/* PDF Viewer */}
                     <div className="lg:col-span-3">
                         <Card>
-                            <CardHeader>
-                                <CardTitle>Document Preview</CardTitle>
+                            <CardHeader className="pb-2 sm:pb-6">
+                                <CardTitle className="text-sm sm:text-base">
+                                    Document Preview
+                                </CardTitle>
                             </CardHeader>
-                            <CardContent>
+                            <CardContent className="p-2 sm:p-6">
                                 <PDFCanvasViewer
                                     pdfUrl={`/documents/${document.id}/pdf`}
                                     onSave={handleSignatureComplete}
@@ -234,32 +271,36 @@ export default function SignDocument({
                     </div>
 
                     {/* Sidebar */}
-                    <div className="space-y-4">
+                    <div className="space-y-2 sm:space-y-4">
                         {/* Document Info */}
                         <Card>
-                            <CardHeader>
-                                <CardTitle>Document Info</CardTitle>
+                            <CardHeader className="pb-2 sm:pb-6">
+                                <CardTitle className="text-sm sm:text-base">
+                                    Document Info
+                                </CardTitle>
                             </CardHeader>
-                            <CardContent className="space-y-3">
+                            <CardContent className="space-y-2 p-2 sm:space-y-3 sm:p-6">
                                 <div>
-                                    <label className="text-sm font-medium text-gray-600">
+                                    <label className="text-xs font-medium text-gray-600 sm:text-sm">
                                         Title
                                     </label>
-                                    <p className="text-sm">{document.title}</p>
+                                    <p className="text-xs break-words sm:text-sm">
+                                        {document.title}
+                                    </p>
                                 </div>
                                 <div>
-                                    <label className="text-sm font-medium text-gray-600">
+                                    <label className="text-xs font-medium text-gray-600 sm:text-sm">
                                         Created by
                                     </label>
-                                    <p className="text-sm">
+                                    <p className="text-xs sm:text-sm">
                                         {document.user.name}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="text-sm font-medium text-gray-600">
+                                    <label className="text-xs font-medium text-gray-600 sm:text-sm">
                                         Total Signatures
                                     </label>
-                                    <p className="text-sm">
+                                    <p className="text-xs sm:text-sm">
                                         {signatures.length}
                                     </p>
                                 </div>
@@ -268,12 +309,14 @@ export default function SignDocument({
 
                         {/* Signatures List */}
                         <Card>
-                            <CardHeader>
-                                <CardTitle>Signatures</CardTitle>
+                            <CardHeader className="pb-2 sm:pb-6">
+                                <CardTitle className="text-sm sm:text-base">
+                                    Signatures
+                                </CardTitle>
                             </CardHeader>
-                            <CardContent>
+                            <CardContent className="p-2 sm:p-6">
                                 {signatures.length === 0 ? (
-                                    <p className="text-sm text-gray-500">
+                                    <p className="text-xs text-gray-500 sm:text-sm">
                                         No signatures yet
                                     </p>
                                 ) : (
@@ -281,11 +324,11 @@ export default function SignDocument({
                                         {signatures.map((signature) => (
                                             <div
                                                 key={signature.id}
-                                                className="rounded-lg border p-3"
+                                                className="rounded-lg border p-2 sm:p-3"
                                             >
                                                 <div className="flex items-center justify-between">
                                                     <div>
-                                                        <p className="text-sm font-medium">
+                                                        <p className="text-xs font-medium sm:text-sm">
                                                             {signature.user
                                                                 ?.name ||
                                                                 'Unknown User'}
@@ -336,30 +379,6 @@ export default function SignDocument({
                                 <CardTitle>Actions</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-3">
-                                {signatures.length > 0 && (
-                                    <>
-                                        <Button
-                                            onClick={() =>
-                                                window.open(
-                                                    `/documents/${document.id}/signed-pdf/preview`,
-                                                    '_blank',
-                                                )
-                                            }
-                                            className="w-full"
-                                            variant="default"
-                                        >
-                                            Preview Signed PDF
-                                        </Button>
-                                        <Button
-                                            onClick={generateSignedPDF}
-                                            className="w-full"
-                                            variant="outline"
-                                        >
-                                            Download Signed PDF
-                                        </Button>
-                                    </>
-                                )}
-
                                 {!hasEncryptionKeys && (
                                     <Button
                                         onClick={() =>
@@ -377,6 +396,26 @@ export default function SignDocument({
                     </div>
                 </div>
             </div>
+
+            {/* Modals */}
+            <AlertModal
+                open={alertModal.isOpen}
+                onClose={alertModal.close}
+                title={alertData.title}
+                description={alertData.description}
+                type={alertData.type}
+            />
+
+            <ConfirmModal
+                open={deleteModal.isOpen}
+                onClose={deleteModal.close}
+                onConfirm={confirmDeleteSignature}
+                title="Hapus Tanda Tangan"
+                description="Apakah Anda yakin ingin menghapus tanda tangan ini? Tindakan ini tidak dapat dibatalkan."
+                confirmText="Hapus"
+                cancelText="Batal"
+                variant="destructive"
+            />
         </AppSidebarLayout>
     );
 }

@@ -35,6 +35,7 @@ interface User {
     id: string;
     name: string;
     email: string;
+    role: string;
 }
 
 interface CertificateRecipient {
@@ -86,20 +87,23 @@ export default function CertificatesIndex({ sertifikats, user }: Props) {
                             Kelola sertifikat yang telah dibuat
                         </p>
                     </div>
-                    <div className="flex space-x-2">
-                        <Link href={routes.certificates.create()}>
-                            <Button className="bg-green-600 hover:bg-green-700">
-                                <Plus className="mr-2 h-4 w-4" />
-                                Buat Sertifikat
-                            </Button>
-                        </Link>
-                        <Link href={routes.certificates.bulk.create()}>
-                            <Button variant="outline">
-                                <Award className="mr-2 h-4 w-4" />
-                                Bulk Generate
-                            </Button>
-                        </Link>
-                    </div>
+                    {/* Hanya admin yang bisa membuat sertifikat */}
+                    {user.role === 'admin' && (
+                        <div className="flex space-x-2">
+                            <Link href={routes.certificates.create()}>
+                                <Button className="bg-green-600 hover:bg-green-700">
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Buat Sertifikat
+                                </Button>
+                            </Link>
+                            <Link href={routes.certificates.bulk.create()}>
+                                <Button variant="outline">
+                                    <Award className="mr-2 h-4 w-4" />
+                                    Bulk Generate
+                                </Button>
+                            </Link>
+                        </div>
+                    )}
                 </div>
 
                 <Card>

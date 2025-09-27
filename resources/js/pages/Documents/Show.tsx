@@ -7,6 +7,7 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import ConfirmModal from '@/components/ui/confirm-modal';
 import { Label } from '@/components/ui/label';
 import {
     Select,
@@ -16,6 +17,8 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useModal } from '@/hooks/use-modal';
+import { useToast } from '@/hooks/use-toast';
 import AppLayout from '@/layouts/app-layout';
 import { routes } from '@/utils/routes';
 import { Head, router, useForm } from '@inertiajs/react';
@@ -76,17 +79,29 @@ interface Props {
 
 export default function DocumentsShow({ document, user }: Props) {
     const [showReviewForm, setShowReviewForm] = useState(false);
-    
+    const { success, error } = useToast();
+    const deleteModal = useModal();
+    const [deleteSignatureId, setDeleteSignatureId] = useState<string>('');
+
+    // Helper function to check if document is truly signed
+    const isDocumentSigned = () => {
+        // Double check: must have signed_file AND signatures
+        return (
+            document.signed_file &&
+            document.signatures &&
+            document.signatures.length > 0
+        );
+    };
+
     // Debug log
     console.log('Document data:', {
         id: document.id,
         signed_file: document.signed_file,
         signatures_count: document.signatures?.length || 0,
-        iframe_src: document.signed_file
+        is_truly_signed: isDocumentSigned(),
+        iframe_src: isDocumentSigned()
             ? `/storage/${document.signed_file}`
-            : document.signatures && document.signatures.length > 0
-            ? `/documents/${document.id}/signed-pdf/preview`
-            : `/documents/${document.id}/pdf`
+            : `/documents/${document.id}/pdf`,
     });
 
     const {
@@ -146,19 +161,29 @@ export default function DocumentsShow({ document, user }: Props) {
         document.to_user.id === user.id;
 
     const handleDeleteSignature = (signatureId: string) => {
-        if (confirm('Apakah Anda yakin ingin menghapus tanda tangan ini?')) {
-            router.delete(`/signatures/${signatureId}`, {
-                onSuccess: () => {
-                    alert('Tanda tangan berhasil dihapus');
-                },
-                onError: (errors) => {
-                    alert(
-                        'Gagal menghapus tanda tangan: ' +
-                            (Object.values(errors)[0] || 'Unknown error'),
-                    );
-                },
-            });
-        }
+        setDeleteSignatureId(signatureId);
+        deleteModal.open();
+    };
+
+    const confirmDeleteSignature = () => {
+        router.delete(`/signatures/${deleteSignatureId}`, {
+            onSuccess: (page) => {
+                // Check if there's a success message from backend
+                if (page.props.flash?.success) {
+                    success(page.props.flash.success);
+                } else {
+                    success('Tanda tangan berhasil dihapus');
+                }
+                setDeleteSignatureId('');
+            },
+            onError: (errors) => {
+                error(
+                    'Gagal menghapus tanda tangan: ' +
+                        (Object.values(errors)[0] ||
+                            'Terjadi kesalahan yang tidak diketahui'),
+                );
+            },
+        });
     };
 
     return (
@@ -183,7 +208,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                 Review Dokumen
                             </Button>
                         )}
-                        {canSign && (
+                        {canSign && !isDocumentSigned() && (
                             <Button
                                 onClick={() =>
                                     router.visit(
@@ -193,9 +218,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                 className="bg-green-600 hover:bg-green-700"
                             >
                                 <Plus className="mr-2 h-4 w-4" />
-                                {(document.signatures?.length || 0) > 0
-                                    ? 'TTD Ulang'
-                                    : 'Tanda Tangan'}
+                                Tanda Tangan
                             </Button>
                         )}
                     </div>
@@ -218,13 +241,9 @@ export default function DocumentsShow({ document, user }: Props) {
                                 >
                                     <iframe
                                         src={
-                                            document.signed_file
+                                            isDocumentSigned()
                                                 ? `/storage/${document.signed_file}`
-                                                : document.signatures &&
-                                                    document.signatures.length >
-                                                        0
-                                                  ? `/documents/${document.id}/signed-pdf/preview`
-                                                  : `/documents/${document.id}/pdf`
+                                                : `/documents/${document.id}/pdf`
                                         }
                                         className="h-full w-full rounded-lg"
                                         title="Document Preview"
@@ -304,20 +323,17 @@ export default function DocumentsShow({ document, user }: Props) {
                                         </span>
                                         <Badge
                                             variant={
-                                                (document.signatures?.length ||
-                                                    0) > 0
+                                                isDocumentSigned()
                                                     ? 'default'
                                                     : 'secondary'
                                             }
                                             className={
-                                                (document.signatures?.length ||
-                                                    0) > 0
+                                                isDocumentSigned()
                                                     ? 'bg-green-100 text-green-800'
                                                     : 'bg-gray-100 text-gray-800'
                                             }
                                         >
-                                            {(document.signatures?.length ||
-                                                0) > 0
+                                            {isDocumentSigned()
                                                 ? 'Sudah Ditandatangani'
                                                 : 'Belum Ditandatangani'}
                                         </Badge>
@@ -350,8 +366,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                     <Button
                                         onClick={() =>
                                             window.open(
-                                                (document.signatures?.length ||
-                                                    0) > 0
+                                                isDocumentSigned()
                                                     ? `/documents/${document.id}/signed-pdf`
                                                     : `/storage/documents/${document.files}`,
                                                 '_blank',
@@ -360,7 +375,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                         className="w-full bg-blue-600 hover:bg-blue-700"
                                     >
                                         <Download className="mr-2 h-4 w-4" />
-                                        {(document.signatures?.length || 0) > 0
+                                        {isDocumentSigned()
                                             ? 'Download Dokumen (Signed)'
                                             : 'Download Dokumen'}
                                     </Button>
@@ -548,19 +563,6 @@ export default function DocumentsShow({ document, user }: Props) {
                                                                 >
                                                                     <Trash2 className="h-4 w-4" />
                                                                 </Button>
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() =>
-                                                                        router.visit(
-                                                                            `/documents/${document.id}/sign`,
-                                                                        )
-                                                                    }
-                                                                    className="text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                                                                    title="TTD Ulang"
-                                                                >
-                                                                    <Plus className="h-4 w-4" />
-                                                                </Button>
                                                             </div>
                                                         )}
                                                     </div>
@@ -604,6 +606,18 @@ export default function DocumentsShow({ document, user }: Props) {
                     </div>
                 </div>
             </div>
+
+            {/* Modals */}
+            <ConfirmModal
+                open={deleteModal.isOpen}
+                onClose={deleteModal.close}
+                onConfirm={confirmDeleteSignature}
+                title="Hapus Tanda Tangan"
+                description="Apakah Anda yakin ingin menghapus tanda tangan ini? Tindakan ini tidak dapat dibatalkan."
+                confirmText="Hapus"
+                cancelText="Batal"
+                variant="destructive"
+            />
         </AppLayout>
     );
 }

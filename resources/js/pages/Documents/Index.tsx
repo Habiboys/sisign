@@ -86,6 +86,16 @@ interface Props {
 export default function DocumentsIndex({ documents, user }: Props) {
     const [deletingId, setDeletingId] = useState<string | null>(null);
 
+    // Helper function to check if document is truly signed
+    const isDocumentSigned = (document: Document) => {
+        // Double check: must have signed_file AND signatures
+        return (
+            document.signed_file &&
+            document.signatures &&
+            document.signatures.length > 0
+        );
+    };
+
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'approved':
@@ -193,20 +203,17 @@ export default function DocumentsIndex({ documents, user }: Props) {
                                         <TableCell>
                                             <Badge
                                                 variant={
-                                                    (document.signatures
-                                                        ?.length || 0) > 0
+                                                    isDocumentSigned(document)
                                                         ? 'default'
                                                         : 'secondary'
                                                 }
                                                 className={
-                                                    (document.signatures
-                                                        ?.length || 0) > 0
+                                                    isDocumentSigned(document)
                                                         ? 'bg-green-100 text-green-800'
                                                         : 'bg-gray-100 text-gray-800'
                                                 }
                                             >
-                                                {(document.signatures?.length ||
-                                                    0) > 0
+                                                {isDocumentSigned(document)
                                                     ? 'Sudah TTD'
                                                     : 'Belum TTD'}
                                             </Badge>

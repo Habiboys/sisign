@@ -36,17 +36,23 @@ const getMainNavItems = (userRole: string): NavItem[] => {
             href: '/documents',
             icon: FileText,
         },
-        {
-            title: 'Template Sertifikat',
-            href: '/templates',
-            icon: FileCheck,
-        },
-        {
-            title: 'Sertifikat',
-            href: '/certificates',
-            icon: Award,
-        },
     ];
+
+    // Only show template and certificate menus for admin and pimpinan
+    if (userRole !== 'pengaju') {
+        baseItems.push(
+            {
+                title: 'Template Sertifikat',
+                href: '/templates',
+                icon: FileCheck,
+            },
+            {
+                title: 'Sertifikat',
+                href: '/certificates',
+                icon: Award,
+            },
+        );
+    }
 
     // Only show encryption key menu for pimpinan
     if (userRole === 'pimpinan') {

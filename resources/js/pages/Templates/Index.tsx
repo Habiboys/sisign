@@ -121,8 +121,8 @@ export default function TemplatesIndex({ templates, user }: Props) {
                             Kelola template sertifikat
                         </p>
                     </div>
-                    {/* Pimpinan hanya bisa menandatangani, tidak bisa membuat template */}
-                    {user.role !== 'pimpinan' && (
+                    {/* Pengaju dan pimpinan tidak bisa membuat template */}
+                    {user.role === 'admin' && (
                         <Link href={routes.templates.create()}>
                             <Button className="bg-green-600 hover:bg-green-700">
                                 <Plus className="mr-2 h-4 w-4" />

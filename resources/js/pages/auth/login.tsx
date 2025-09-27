@@ -9,7 +9,7 @@ import AuthLayout from '@/layouts/auth-layout';
 import { register } from '@/routes';
 import { request } from '@/routes/password';
 import { Form, Head } from '@inertiajs/react';
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, Lock, Mail } from 'lucide-react';
 
 interface LoginProps {
     status?: string;
@@ -19,10 +19,10 @@ interface LoginProps {
 export default function Login({ status, canResetPassword }: LoginProps) {
     return (
         <AuthLayout
-            title="Log in to your account"
-            description="Enter your email and password below to log in"
+            title="Selamat Datang di SISIGN"
+            description="Masuk ke akun Anda untuk mengakses sistem tanda tangan digital"
         >
-            <Head title="Log in" />
+            <Head title="Masuk - SISIGN" />
 
             <Form
                 {...AuthenticatedSessionController.store.form()}
@@ -33,42 +33,60 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                     <>
                         <div className="grid gap-6">
                             <div className="grid gap-2">
-                                <Label htmlFor="email">Email address</Label>
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    name="email"
-                                    required
-                                    autoFocus
-                                    tabIndex={1}
-                                    autoComplete="email"
-                                    placeholder="email@example.com"
-                                />
+                                <Label
+                                    htmlFor="email"
+                                    className="text-sm font-medium"
+                                >
+                                    Alamat Email
+                                </Label>
+                                <div className="relative">
+                                    <Mail className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        name="email"
+                                        required
+                                        autoFocus
+                                        tabIndex={1}
+                                        autoComplete="email"
+                                        placeholder="admin@sisign.com"
+                                        className="pl-10"
+                                    />
+                                </div>
                                 <InputError message={errors.email} />
                             </div>
 
                             <div className="grid gap-2">
                                 <div className="flex items-center">
-                                    <Label htmlFor="password">Password</Label>
+                                    <Label
+                                        htmlFor="password"
+                                        className="text-sm font-medium"
+                                    >
+                                        Kata Sandi
+                                    </Label>
                                     {canResetPassword && (
                                         <TextLink
                                             href={request()}
-                                            className="ml-auto text-sm"
+                                            className="ml-auto text-sm text-blue-600 hover:text-blue-800"
                                             tabIndex={5}
                                         >
-                                            Forgot password?
+                                            Lupa kata sandi?
                                         </TextLink>
                                     )}
                                 </div>
-                                <Input
-                                    id="password"
-                                    type="password"
-                                    name="password"
-                                    required
-                                    tabIndex={2}
-                                    autoComplete="current-password"
-                                    placeholder="Password"
-                                />
+                                <div className="relative">
+                                    <Lock className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        id="password"
+                                        type="password"
+                                        name="password"
+                                        required
+                                        tabIndex={2}
+                                        autoComplete="current-password"
+                                        placeholder="Masukkan kata sandi"
+                                        className="pl-10"
+                                    />
+                                </div>
                                 <InputError message={errors.password} />
                             </div>
 
@@ -78,27 +96,33 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                                     name="remember"
                                     tabIndex={3}
                                 />
-                                <Label htmlFor="remember">Remember me</Label>
+                                <Label htmlFor="remember" className="text-sm">
+                                    Ingat saya
+                                </Label>
                             </div>
 
                             <Button
                                 type="submit"
-                                className="mt-4 w-full"
+                                className="mt-4 w-full bg-blue-600 text-white hover:bg-blue-700"
                                 tabIndex={4}
                                 disabled={processing}
                                 data-test="login-button"
                             >
                                 {processing && (
-                                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                                 )}
-                                Log in
+                                Masuk ke SISIGN
                             </Button>
                         </div>
 
                         <div className="text-center text-sm text-muted-foreground">
-                            Don't have an account?{' '}
-                            <TextLink href={register()} tabIndex={5}>
-                                Sign up
+                            Belum punya akun?{' '}
+                            <TextLink
+                                href={register()}
+                                tabIndex={5}
+                                className="text-blue-600 hover:text-blue-800"
+                            >
+                                Daftar sekarang
                             </TextLink>
                         </div>
                     </>

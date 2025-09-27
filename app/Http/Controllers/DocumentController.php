@@ -15,7 +15,7 @@ class DocumentController extends Controller
     public function index()
     {
         $user = Auth::user();
-        $query = Document::with(['user', 'toUser', 'review']);
+        $query = Document::with(['user', 'toUser', 'review', 'signatures.user']);
 
         if ($user->isAdmin()) {
             $documents = $query->latest('created_at')->paginate(10);
@@ -27,6 +27,33 @@ class DocumentController extends Controller
         // dd(Document::with('toUser')->first()->toUser);
         //         $documents = \App\Models\Document::with('toUser', 'user')->get();
         // dd($documents->toArray());
+
+
+
+        // Transform documents data to ensure proper serialization
+        $documents->getCollection()->transform(function ($document) {
+            return [
+                'id' => $document->id,
+                'title' => $document->title,
+                'files' => $document->files,
+                'signed_file' => $document->signed_file,
+                'number' => $document->number,
+                'to' => $document->to,
+                'created_at' => $document->created_at,
+                'updated_at' => $document->updated_at,
+                'user' => $document->user->toArray(),
+                'toUser' => $document->toUser ? $document->toUser->toArray() : null,
+                'review' => $document->review->toArray(),
+                'signatures' => $document->signatures->map(function ($signature) {
+                    return [
+                        'id' => $signature->id,
+                        'type' => $signature->type,
+                        'signedAt' => $signature->signedAt,
+                        'user' => $signature->user ? $signature->user->toArray() : null,
+                    ];
+                })->toArray(),
+            ];
+        });
 
         return Inertia::render('Documents/Index', [
             'documents' => $documents,

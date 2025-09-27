@@ -345,10 +345,9 @@ class SignatureController extends Controller
     public function destroy(Signature $signature)
     {
         if ($signature->userId !== Auth::id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized to delete this signature',
-            ], 403);
+            return back()->withErrors([
+                'error' => 'Unauthorized to delete this signature',
+            ]);
         }
 
         try {
@@ -356,17 +355,26 @@ class SignatureController extends Controller
                 Storage::delete($signature->signatureFile);
             }
 
+            $document = $signature->document;
             $signature->delete();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Signature deleted successfully',
-            ]);
+            // Check if this was the last signature for this document
+            $remainingSignatures = Signature::where('documentId', $document->id)->count();
+
+            if ($remainingSignatures === 0) {
+                // Delete the signed file if no signatures remain
+                if ($document->signed_file) {
+                    Storage::delete('public/' . $document->signed_file);
+                    $document->signed_file = null;
+                    $document->save();
+                }
+            }
+
+            return back()->with('success', 'Signature deleted successfully');
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete signature: ' . $e->getMessage(),
-            ], 500);
+            return back()->withErrors([
+                'error' => 'Failed to delete signature: ' . $e->getMessage(),
+            ]);
         }
     }
 
