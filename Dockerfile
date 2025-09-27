@@ -97,7 +97,7 @@ nginx -g "daemon off;"\n\
 RUN chmod +x /start.sh
 
 # Expose port 8000
-EXPOSE 8001
+EXPOSE 8000
 
 # Start services
 CMD ["/start.sh"]
