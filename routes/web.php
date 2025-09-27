@@ -32,7 +32,7 @@ Route::middleware(['auth'])->group(function () {
     // Signatures
     Route::resource('signatures', App\Http\Controllers\SignatureController::class);
     Route::get('signatures/create', [App\Http\Controllers\SignatureController::class, 'create'])->name('signatures.create');
-
+    
     // Signature routes for documents
     Route::get('documents/{document}/sign', [App\Http\Controllers\SignatureController::class, 'show'])->name('documents.sign');
     Route::post('documents/{document}/sign/physical', [App\Http\Controllers\SignatureController::class, 'storePhysical'])->name('signatures.physical');

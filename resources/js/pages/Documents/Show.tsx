@@ -164,7 +164,7 @@ export default function DocumentsShow({ document, user }: Props) {
         setDeleteSignatureId(signatureId);
         deleteModal.open();
     };
-
+    //aa
     const confirmDeleteSignature = () => {
         router.delete(`/signatures/${deleteSignatureId}`, {
             onSuccess: (page) => {
