@@ -23,6 +23,11 @@ class AppServiceProvider extends ServiceProvider
         // Force HTTPS in production
         if (app()->environment('production')) {
             URL::forceScheme('https');
+            
+            // Force HTTPS for asset URLs
+            if (config('app.asset_url')) {
+                config(['app.asset_url' => str_replace('http://', 'https://', config('app.asset_url'))]);
+            }
         }
     }
 }
