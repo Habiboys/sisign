@@ -89,8 +89,12 @@ export default function PDFCanvasViewer({
             }
 
             const rect = canvas.getBoundingClientRect();
-            const x = clientX - rect.left;
-            const y = clientY - rect.top;
+            // Use devicePixelRatio for accurate positioning on mobile
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            const x = (clientX - rect.left) * scaleX;
+            const y = (clientY - rect.top) * scaleY;
 
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
@@ -128,8 +132,12 @@ export default function PDFCanvasViewer({
             }
 
             const rect = canvas.getBoundingClientRect();
-            const x = clientX - rect.left;
-            const y = clientY - rect.top;
+            // Use devicePixelRatio for accurate positioning on mobile
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            const x = (clientX - rect.left) * scaleX;
+            const y = (clientY - rect.top) * scaleY;
 
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
@@ -278,13 +286,19 @@ export default function PDFCanvasViewer({
             }
 
             const rect = canvas.getBoundingClientRect();
-            const x = clientX - rect.left;
-            const y = clientY - rect.top;
+            // Use devicePixelRatio for accurate positioning on mobile
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            const x = (clientX - rect.left) * scaleX;
+            const y = (clientY - rect.top) * scaleY;
 
             console.log('Stamp clicked at:', {
                 x,
                 y,
                 canvasSize: `${canvas.width}x${canvas.height}`,
+                scaleX,
+                scaleY,
             });
             setStampPosition({ x, y });
         },
@@ -781,6 +795,9 @@ export default function PDFCanvasViewer({
                                 maxWidth: '100%',
                                 height: 'auto',
                                 touchAction: 'none',
+                                userSelect: 'none',
+                                WebkitUserSelect: 'none',
+                                WebkitTouchCallout: 'none',
                             }}
                             onMouseDown={
                                 drawingMode === 'stamp'
