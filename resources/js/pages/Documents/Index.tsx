@@ -123,12 +123,15 @@ export default function DocumentsIndex({ documents, user }: Props) {
                             Kelola dokumen dan pengajuan
                         </p>
                     </div>
-                    <Link href={routes.documents.create()}>
-                        <Button className="bg-green-600 hover:bg-green-700">
-                            <Plus className="mr-2 h-4 w-4" />
-                            Ajukan Dokumen
-                        </Button>
-                    </Link>
+                    {/* Pimpinan hanya bisa menandatangani, tidak bisa mengajukan dokumen */}
+                    {user.role !== 'pimpinan' && (
+                        <Link href={routes.documents.create()}>
+                            <Button className="bg-green-600 hover:bg-green-700">
+                                <Plus className="mr-2 h-4 w-4" />
+                                Ajukan Dokumen
+                            </Button>
+                        </Link>
+                    )}
                 </div>
 
                 <Card>
@@ -170,7 +173,7 @@ export default function DocumentsIndex({ documents, user }: Props) {
                                             {document.user.name}
                                         </TableCell>
                                         <TableCell>
-                                        {document.to_user?.name ?? '-'}
+                                        {document.toUser?.name ?? '-'}
 
                                         </TableCell>
                                         <TableCell>

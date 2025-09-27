@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import AppSidebarLayout from '@/layouts/app/app-sidebar-layout';
+import AppLayout from '@/layouts/app-layout';
 import { Head, useForm } from '@inertiajs/react';
 import React, { useState } from 'react';
 
@@ -108,24 +108,25 @@ export default function EncryptionIndex({
     };
 
     return (
-        <AppSidebarLayout>
+        <AppLayout>
             <Head title="Encryption Keys Management" />
-
-            <div className="mx-auto max-w-4xl p-4">
-                <div className="mb-4">
-                    <h1 className="text-2xl font-bold text-gray-900">
-                        Encryption Keys Management
-                    </h1>
-                    <p className="mt-1 text-gray-600">
-                        Manage your cryptographic keys for digital signatures
-                    </p>
+            <div className="flex h-full flex-1 flex-col gap-6 overflow-x-auto rounded-xl p-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-900">
+                            Manajemen Kunci Enkripsi
+                        </h1>
+                        <p className="text-gray-600">
+                            Kelola kunci kriptografi untuk tanda tangan digital
+                        </p>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     {/* Current Keys Status */}
                     <Card>
                         <CardHeader>
-                            <CardTitle>Current Keys Status</CardTitle>
+                            <CardTitle>Status Kunci Saat Ini</CardTitle>
                         </CardHeader>
                         <CardContent>
                             {hasKeys ? (
@@ -133,7 +134,7 @@ export default function EncryptionIndex({
                                     <div className="flex items-center">
                                         <div className="mr-3 h-3 w-3 rounded-full bg-green-500"></div>
                                         <span className="font-medium text-green-600">
-                                            Keys Generated
+                                            Kunci Telah Dibuat
                                         </span>
                                     </div>
 
@@ -141,7 +142,7 @@ export default function EncryptionIndex({
                                         <div className="space-y-2 text-sm">
                                             <div className="flex justify-between">
                                                 <span className="text-gray-600">
-                                                    Key Type:
+                                                    Tipe Kunci:
                                                 </span>
                                                 <span className="font-medium">
                                                     {keyInfo.key_type}
@@ -149,7 +150,7 @@ export default function EncryptionIndex({
                                             </div>
                                             <div className="flex justify-between">
                                                 <span className="text-gray-600">
-                                                    Key Size:
+                                                    Ukuran Kunci:
                                                 </span>
                                                 <span className="font-medium">
                                                     {keyInfo.key_size} bits
@@ -157,7 +158,7 @@ export default function EncryptionIndex({
                                             </div>
                                             <div className="flex justify-between">
                                                 <span className="text-gray-600">
-                                                    Algorithm:
+                                                    Algoritma:
                                                 </span>
                                                 <span className="font-medium">
                                                     {keyInfo.algorithm}
@@ -165,7 +166,7 @@ export default function EncryptionIndex({
                                             </div>
                                             <div className="flex justify-between">
                                                 <span className="text-gray-600">
-                                                    Created:
+                                                    Dibuat:
                                                 </span>
                                                 <span className="font-medium">
                                                     {new Date(
@@ -192,7 +193,7 @@ export default function EncryptionIndex({
                                             variant="outline"
                                             size="sm"
                                         >
-                                            Download Public Key
+                                            Unduh Kunci Publik
                                         </Button>
                                         <Button
                                             onClick={() =>
@@ -201,7 +202,7 @@ export default function EncryptionIndex({
                                             variant="outline"
                                             size="sm"
                                         >
-                                            Test Encryption
+                                            Test Enkripsi
                                         </Button>
                                     </div>
                                 </div>
@@ -210,12 +211,12 @@ export default function EncryptionIndex({
                                     <div className="flex items-center">
                                         <div className="mr-3 h-3 w-3 rounded-full bg-red-500"></div>
                                         <span className="font-medium text-red-600">
-                                            No Keys Generated
+                                            Belum Ada Kunci
                                         </span>
                                     </div>
                                     <p className="text-sm text-gray-600">
-                                        You need to generate encryption keys to
-                                        use digital signatures.
+                                        Anda perlu membuat kunci enkripsi untuk
+                                        menggunakan tanda tangan digital.
                                     </p>
                                     <Button
                                         onClick={() =>
@@ -223,7 +224,7 @@ export default function EncryptionIndex({
                                         }
                                         className="w-full"
                                     >
-                                        Generate New Keys
+                                        Buat Kunci Baru
                                     </Button>
                                 </div>
                             )}
@@ -233,20 +234,20 @@ export default function EncryptionIndex({
                     {/* Key Management Actions */}
                     <Card>
                         <CardHeader>
-                            <CardTitle>Key Management</CardTitle>
+                            <CardTitle>Manajemen Kunci</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
                                 <h4 className="mb-2 font-medium text-blue-800">
-                                    About Digital Signatures
+                                    Tentang Tanda Tangan Digital
                                 </h4>
                                 <ul className="space-y-1 text-sm text-blue-700">
-                                    <li>• Uses RSA 2048-bit encryption</li>
-                                    <li>• SHA-256 hashing algorithm</li>
-                                    <li>• Cryptographically secure</li>
-                                    <li>• Tamper-evident and non-repudiable</li>
+                                    <li>• Menggunakan enkripsi RSA 2048-bit</li>
+                                    <li>• Algoritma hashing SHA-256</li>
+                                    <li>• Aman secara kriptografi</li>
+                                    <li>• Tahan manipulasi dan tidak dapat disangkal</li>
                                     <li>
-                                        • Legally binding in many jurisdictions
+                                        • Mengikat secara hukum di banyak yurisdiksi
                                     </li>
                                 </ul>
                             </div>
@@ -260,16 +261,16 @@ export default function EncryptionIndex({
                                         variant="outline"
                                         className="w-full"
                                     >
-                                        Regenerate Keys
+                                        Buat Ulang Kunci
                                     </Button>
 
                                     <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
                                         <h4 className="mb-2 font-medium text-yellow-800">
-                                            ⚠️ Danger Zone
+                                            ⚠️ Area Berbahaya
                                         </h4>
                                         <p className="mb-3 text-sm text-yellow-700">
-                                            Deleting keys will invalidate all
-                                            existing digital signatures.
+                                            Menghapus kunci akan membuat semua
+                                            tanda tangan digital yang ada menjadi tidak valid.
                                         </p>
                                         <Button
                                             onClick={() =>
@@ -282,7 +283,7 @@ export default function EncryptionIndex({
                                             size="sm"
                                             className="w-full"
                                         >
-                                            Delete Keys
+                                            Hapus Kunci
                                         </Button>
                                     </div>
                                 </div>
@@ -295,7 +296,7 @@ export default function EncryptionIndex({
                 {showGenerateForm && (
                     <Card className="mt-4">
                         <CardHeader>
-                            <CardTitle>Generate New Encryption Keys</CardTitle>
+                            <CardTitle>Buat Kunci Enkripsi Baru</CardTitle>
                         </CardHeader>
                         <CardContent>
                             <form
@@ -304,7 +305,7 @@ export default function EncryptionIndex({
                             >
                                 <div>
                                     <label className="mb-2 block text-sm font-medium">
-                                        Passphrase (Optional)
+                                        Kata Sandi (Opsional)
                                     </label>
                                     <input
                                         type="password"
@@ -316,17 +317,17 @@ export default function EncryptionIndex({
                                             )
                                         }
                                         className="w-full rounded-md border px-3 py-2"
-                                        placeholder="Enter a passphrase to encrypt your private key"
+                                        placeholder="Masukkan kata sandi untuk mengenkripsi kunci privat Anda"
                                     />
                                     <p className="mt-1 text-xs text-gray-500">
-                                        Leave empty for unencrypted private key
-                                        (not recommended)
+                                        Biarkan kosong untuk kunci privat tidak terenkripsi
+                                        (tidak disarankan)
                                     </p>
                                 </div>
 
                                 <div>
                                     <label className="mb-2 block text-sm font-medium">
-                                        Confirm Passphrase
+                                        Konfirmasi Kata Sandi
                                     </label>
                                     <input
                                         type="password"
@@ -340,7 +341,7 @@ export default function EncryptionIndex({
                                             )
                                         }
                                         className="w-full rounded-md border px-3 py-2"
-                                        placeholder="Confirm your passphrase"
+                                        placeholder="Konfirmasi kata sandi Anda"
                                     />
                                 </div>
 
@@ -352,15 +353,15 @@ export default function EncryptionIndex({
                                             setShowGenerateForm(false)
                                         }
                                     >
-                                        Cancel
+                                        Batal
                                     </Button>
                                     <Button
                                         type="submit"
                                         disabled={generateForm.processing}
                                     >
                                         {generateForm.processing
-                                            ? 'Generating...'
-                                            : 'Generate Keys'}
+                                            ? 'Membuat...'
+                                            : 'Buat Kunci'}
                                     </Button>
                                 </div>
                             </form>
@@ -372,7 +373,7 @@ export default function EncryptionIndex({
                 {showTestForm && (
                     <Card className="mt-4">
                         <CardHeader>
-                            <CardTitle>Test Encryption & Signing</CardTitle>
+                            <CardTitle>Test Enkripsi & Penandatanganan</CardTitle>
                         </CardHeader>
                         <CardContent>
                             <form
@@ -381,7 +382,7 @@ export default function EncryptionIndex({
                             >
                                 <div>
                                     <label className="mb-2 block text-sm font-medium">
-                                        Test Message
+                                        Pesan Test
                                     </label>
                                     <textarea
                                         value={testForm.data.test_data}
@@ -393,13 +394,13 @@ export default function EncryptionIndex({
                                         }
                                         className="w-full rounded-md border px-3 py-2"
                                         rows={3}
-                                        placeholder="Enter a message to test encryption"
+                                        placeholder="Masukkan pesan untuk test enkripsi"
                                     />
                                 </div>
 
                                 <div>
                                     <label className="mb-2 block text-sm font-medium">
-                                        Passphrase (if set)
+                                        Kata Sandi (jika diset)
                                     </label>
                                     <input
                                         type="password"
@@ -411,7 +412,7 @@ export default function EncryptionIndex({
                                             )
                                         }
                                         className="w-full rounded-md border px-3 py-2"
-                                        placeholder="Enter your private key passphrase"
+                                        placeholder="Masukkan kata sandi kunci privat Anda"
                                     />
                                 </div>
 
@@ -421,15 +422,15 @@ export default function EncryptionIndex({
                                         variant="outline"
                                         onClick={() => setShowTestForm(false)}
                                     >
-                                        Cancel
+                                        Batal
                                     </Button>
                                     <Button
                                         type="submit"
                                         disabled={testForm.processing}
                                     >
                                         {testForm.processing
-                                            ? 'Testing...'
-                                            : 'Run Test'}
+                                            ? 'Menguji...'
+                                            : 'Jalankan Test'}
                                     </Button>
                                 </div>
                             </form>
@@ -437,11 +438,11 @@ export default function EncryptionIndex({
                             {testResults && (
                                 <div className="mt-6 rounded-lg bg-gray-50 p-4">
                                     <h4 className="mb-3 font-medium">
-                                        Test Results
+                                        Hasil Test
                                     </h4>
                                     <div className="space-y-2 text-sm">
                                         <div className="flex justify-between">
-                                            <span>Encryption Test:</span>
+                                            <span>Test Enkripsi:</span>
                                             <span
                                                 className={
                                                     testResults.encryption_success
@@ -450,12 +451,12 @@ export default function EncryptionIndex({
                                                 }
                                             >
                                                 {testResults.encryption_success
-                                                    ? '✓ Passed'
-                                                    : '✗ Failed'}
+                                                    ? '✓ Berhasil'
+                                                    : '✗ Gagal'}
                                             </span>
                                         </div>
                                         <div className="flex justify-between">
-                                            <span>Signature Test:</span>
+                                            <span>Test Tanda Tangan:</span>
                                             <span
                                                 className={
                                                     testResults.signature_valid
@@ -465,11 +466,11 @@ export default function EncryptionIndex({
                                             >
                                                 {testResults.signature_valid
                                                     ? '✓ Valid'
-                                                    : '✗ Invalid'}
+                                                    : '✗ Tidak Valid'}
                                             </span>
                                         </div>
                                         <div className="flex justify-between">
-                                            <span>Overall:</span>
+                                            <span>Keseluruhan:</span>
                                             <span
                                                 className={
                                                     testResults.all_tests_passed
@@ -478,8 +479,8 @@ export default function EncryptionIndex({
                                                 }
                                             >
                                                 {testResults.all_tests_passed
-                                                    ? '✓ All Tests Passed'
-                                                    : '✗ Some Tests Failed'}
+                                                    ? '✓ Semua Test Berhasil'
+                                                    : '✗ Beberapa Test Gagal'}
                                             </span>
                                         </div>
                                     </div>
@@ -489,6 +490,6 @@ export default function EncryptionIndex({
                     </Card>
                 )}
             </div>
-        </AppSidebarLayout>
+        </AppLayout>
     );
 }

@@ -160,19 +160,22 @@ export default function Dashboard({
                         Aksi Cepat
                     </h2>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                        <Link href="/documents/create" className="block">
-                            <div className="flex items-center rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50">
-                                <Plus className="mr-3 h-5 w-5 text-green-600" />
-                                <div>
-                                    <p className="font-medium text-gray-900">
-                                        Ajukan Dokumen
-                                    </p>
-                                    <p className="text-sm text-gray-500">
-                                        Buat pengajuan baru
-                                    </p>
+                        {/* Pimpinan hanya bisa menandatangani, tidak bisa mengajukan dokumen */}
+                        {user.role !== 'pimpinan' && (
+                            <Link href="/documents/create" className="block">
+                                <div className="flex items-center rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50">
+                                    <Plus className="mr-3 h-5 w-5 text-green-600" />
+                                    <div>
+                                        <p className="font-medium text-gray-900">
+                                            Ajukan Dokumen
+                                        </p>
+                                        <p className="text-sm text-gray-500">
+                                            Buat pengajuan baru
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
-                        </Link>
+                            </Link>
+                        )}
 
                         <Link href="/documents" className="block">
                             <div className="flex items-center rounded-lg border border-gray-200 p-4 transition-colors hover:bg-gray-50">

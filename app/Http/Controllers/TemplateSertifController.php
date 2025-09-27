@@ -25,13 +25,29 @@ class TemplateSertifController extends Controller
 
     public function create()
     {
+        $user = Auth::user();
+
+        // Pimpinan tidak bisa membuat template
+        if ($user->isPimpinan()) {
+            return redirect()->route('templates.index')
+                ->with('error', 'Pimpinan hanya dapat menandatangani dokumen, tidak dapat membuat template.');
+        }
+
         return Inertia::render('Templates/Create', [
-            'user' => Auth::user()
+            'user' => $user
         ]);
     }
 
     public function store(Request $request)
     {
+        $user = Auth::user();
+        
+        // Pimpinan tidak bisa membuat template
+        if ($user->isPimpinan()) {
+            return redirect()->route('templates.index')
+                ->with('error', 'Pimpinan hanya dapat menandatangani dokumen, tidak dapat membuat template.');
+        }
+
         $request->validate([
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -42,8 +58,14 @@ class TemplateSertifController extends Controller
         $filename = time() . '_' . $file->getClientOriginalName();
         $file->storeAs('templates', $filename, 'public');
 
+        // Jika admin yang membuat, langsung disetujui
+        $reviewStatus = $user->isAdmin() ? 'approved' : 'pending';
+        $disetujuiBy = $user->isAdmin() ? Auth::id() : null;
+
         $review = Review::create([
-            'status' => 'pending'
+            'status' => $reviewStatus,
+            'disetujui' => $disetujuiBy,
+            'komentar' => $user->isAdmin() ? 'Template dibuat oleh admin, otomatis disetujui.' : null
         ]);
 
         TemplateSertif::create([
@@ -53,7 +75,11 @@ class TemplateSertifController extends Controller
             'reviewId' => $review->id
         ]);
 
-        return redirect()->route('templates.index')->with('success', 'Template berhasil dibuat');
+        $successMessage = $user->isAdmin() ? 
+            'Template berhasil dibuat dan otomatis disetujui.' : 
+            'Template berhasil dibuat';
+            
+        return redirect()->route('templates.index')->with('success', $successMessage);
     }
 
     public function show(TemplateSertif $template)

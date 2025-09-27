@@ -38,6 +38,12 @@ class DocumentController extends Controller
     {
         $user = Auth::user();
 
+        // Pimpinan tidak bisa mengajukan dokumen
+        if ($user->isPimpinan()) {
+            return redirect()->route('documents.index')
+                ->with('error', 'Pimpinan hanya dapat menandatangani dokumen, tidak dapat mengajukan dokumen.');
+        }
+
         if ($user->isAdmin()) {
             $users = User::where('role', 'pimpinan')->get();
         } else {
@@ -52,6 +58,14 @@ class DocumentController extends Controller
 
     public function store(Request $request)
     {
+        $user = Auth::user();
+        
+        // Pimpinan tidak bisa mengajukan dokumen
+        if ($user->isPimpinan()) {
+            return redirect()->route('documents.index')
+                ->with('error', 'Pimpinan hanya dapat menandatangani dokumen, tidak dapat mengajukan dokumen.');
+        }
+
         $request->validate([
             'title' => 'required|string|max:255',
             'file' => 'required|file|mimes:pdf,doc,docx|max:10240',
@@ -63,8 +77,14 @@ class DocumentController extends Controller
         $filename = time() . '_' . $file->getClientOriginalName();
         $file->storeAs('documents', $filename, 'public');
 
+        // Jika admin yang membuat, langsung disetujui
+        $reviewStatus = $user->isAdmin() ? 'approved' : 'pending';
+        $disetujuiBy = $user->isAdmin() ? Auth::id() : null;
+        
         $review = Review::create([
-            'status' => 'pending'
+            'status' => $reviewStatus,
+            'disetujui' => $disetujuiBy,
+            'komentar' => $user->isAdmin() ? 'Dokumen dibuat oleh admin, otomatis disetujui.' : null
         ]);
 
         Document::create([
@@ -76,7 +96,11 @@ class DocumentController extends Controller
             'reviewId' => $review->id,
         ]);
 
-        return redirect()->route('documents.index')->with('success', 'Dokumen berhasil diajukan');
+        $successMessage = $user->isAdmin() ? 
+            'Dokumen berhasil dibuat dan otomatis disetujui.' : 
+            'Dokumen berhasil diajukan';
+            
+        return redirect()->route('documents.index')->with('success', $successMessage);
     }
 
     public function show(Document $document)
