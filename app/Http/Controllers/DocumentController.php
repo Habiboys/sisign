@@ -25,8 +25,8 @@ class DocumentController extends Controller
             $documents = $query->where('userId', $user->id)->latest('created_at')->paginate(10);
         }
         // dd(Document::with('toUser')->first()->toUser);
-//         $documents = \App\Models\Document::with('toUser', 'user')->get();
-// dd($documents->toArray());
+        //         $documents = \App\Models\Document::with('toUser', 'user')->get();
+        // dd($documents->toArray());
 
         return Inertia::render('Documents/Index', [
             'documents' => $documents,
@@ -59,7 +59,7 @@ class DocumentController extends Controller
     public function store(Request $request)
     {
         $user = Auth::user();
-        
+
         // Pimpinan tidak bisa mengajukan dokumen
         if ($user->isPimpinan()) {
             return redirect()->route('documents.index')
@@ -80,7 +80,7 @@ class DocumentController extends Controller
         // Jika admin yang membuat, langsung disetujui
         $reviewStatus = $user->isAdmin() ? 'approved' : 'pending';
         $disetujuiBy = $user->isAdmin() ? Auth::id() : null;
-        
+
         $review = Review::create([
             'status' => $reviewStatus,
             'disetujui' => $disetujuiBy,
@@ -96,10 +96,10 @@ class DocumentController extends Controller
             'reviewId' => $review->id,
         ]);
 
-        $successMessage = $user->isAdmin() ? 
-            'Dokumen berhasil dibuat dan otomatis disetujui.' : 
+        $successMessage = $user->isAdmin() ?
+            'Dokumen berhasil dibuat dan otomatis disetujui.' :
             'Dokumen berhasil diajukan';
-            
+
         return redirect()->route('documents.index')->with('success', $successMessage);
     }
 
@@ -143,7 +143,7 @@ class DocumentController extends Controller
     public function viewPDF(Document $document)
     {
         $filePath = 'documents/' . $document->files;
-        
+
         if (!Storage::disk('public')->exists($filePath)) {
             abort(404, 'File not found');
         }

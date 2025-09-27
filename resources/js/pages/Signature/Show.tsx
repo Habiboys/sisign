@@ -1,4 +1,4 @@
-import PDFSignatureViewer from '@/components/PDFSignatureViewer';
+import PDFCanvasViewer from '@/components/PDFCanvasViewer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppSidebarLayout from '@/layouts/app/app-sidebar-layout';
@@ -53,8 +53,8 @@ export default function SignDocument({
 
     const handleSignatureComplete = (
         signatureData: string,
-        position: { x: number; y: number; page: number },
         passphrase?: string,
+        signedPdfBase64?: string,
     ) => {
         if (!canSign) {
             alert('You are not authorized to sign this document');
@@ -68,14 +68,27 @@ export default function SignDocument({
         }
 
         // Create combined signature (physical + digital)
-        createCombinedSignature(signatureData, position, passphrase);
+        createCombinedSignature(
+            signatureData,
+            { x: 0, y: 0, page: 1 },
+            passphrase,
+            signedPdfBase64,
+        );
     };
 
     const createCombinedSignature = (
         signatureData: string,
         position: { x: number; y: number; page: number },
         passphrase?: string,
+        signedPdfBase64?: string,
     ) => {
+        console.log('Sending signature data:', {
+            dataLength: signatureData.length,
+            dataPreview: signatureData.substring(0, 100),
+            position,
+            hasPassphrase: !!passphrase,
+        });
+
         // Use Inertia router to make the request
         router.post(
             `/documents/${document.id}/sign/combined`,
@@ -89,6 +102,7 @@ export default function SignDocument({
                     page: Math.round(position.page),
                 },
                 passphrase: passphrase || null, // Use provided passphrase or null
+                signedPdfBase64: signedPdfBase64 || null, // Send signed PDF data
             },
             {
                 onSuccess: () => {
@@ -209,18 +223,11 @@ export default function SignDocument({
                                 <CardTitle>Document Preview</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <PDFSignatureViewer
+                                <PDFCanvasViewer
                                     pdfUrl={`/documents/${document.id}/pdf`}
-                                    signatures={signatures}
-                                    onSignaturePositionChange={
-                                        handleSignaturePositionChange
-                                    }
-                                    onSignatureComplete={
-                                        handleSignatureComplete
-                                    }
+                                    onSave={handleSignatureComplete}
                                     canEdit={canSign}
-                                    currentPage={currentPage}
-                                    onPageChange={setCurrentPage}
+                                    documentId={document.id}
                                 />
                             </CardContent>
                         </Card>

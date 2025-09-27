@@ -41,7 +41,7 @@ class TemplateSertifController extends Controller
     public function store(Request $request)
     {
         $user = Auth::user();
-        
+
         // Pimpinan tidak bisa membuat template
         if ($user->isPimpinan()) {
             return redirect()->route('templates.index')
@@ -75,10 +75,10 @@ class TemplateSertifController extends Controller
             'reviewId' => $review->id
         ]);
 
-        $successMessage = $user->isAdmin() ? 
-            'Template berhasil dibuat dan otomatis disetujui.' : 
+        $successMessage = $user->isAdmin() ?
+            'Template berhasil dibuat dan otomatis disetujui.' :
             'Template berhasil dibuat';
-            
+
         return redirect()->route('templates.index')->with('success', $successMessage);
     }
 

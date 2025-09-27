@@ -245,9 +245,13 @@ export default function EncryptionIndex({
                                     <li>• Menggunakan enkripsi RSA 2048-bit</li>
                                     <li>• Algoritma hashing SHA-256</li>
                                     <li>• Aman secara kriptografi</li>
-                                    <li>• Tahan manipulasi dan tidak dapat disangkal</li>
                                     <li>
-                                        • Mengikat secara hukum di banyak yurisdiksi
+                                        • Tahan manipulasi dan tidak dapat
+                                        disangkal
+                                    </li>
+                                    <li>
+                                        • Mengikat secara hukum di banyak
+                                        yurisdiksi
                                     </li>
                                 </ul>
                             </div>
@@ -270,7 +274,8 @@ export default function EncryptionIndex({
                                         </h4>
                                         <p className="mb-3 text-sm text-yellow-700">
                                             Menghapus kunci akan membuat semua
-                                            tanda tangan digital yang ada menjadi tidak valid.
+                                            tanda tangan digital yang ada
+                                            menjadi tidak valid.
                                         </p>
                                         <Button
                                             onClick={() =>
@@ -320,8 +325,8 @@ export default function EncryptionIndex({
                                         placeholder="Masukkan kata sandi untuk mengenkripsi kunci privat Anda"
                                     />
                                     <p className="mt-1 text-xs text-gray-500">
-                                        Biarkan kosong untuk kunci privat tidak terenkripsi
-                                        (tidak disarankan)
+                                        Biarkan kosong untuk kunci privat tidak
+                                        terenkripsi (tidak disarankan)
                                     </p>
                                 </div>
 
@@ -373,7 +378,9 @@ export default function EncryptionIndex({
                 {showTestForm && (
                     <Card className="mt-4">
                         <CardHeader>
-                            <CardTitle>Test Enkripsi & Penandatanganan</CardTitle>
+                            <CardTitle>
+                                Test Enkripsi & Penandatanganan
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <form

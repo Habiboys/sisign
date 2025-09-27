@@ -18,6 +18,7 @@ class Document extends Model
         'userId',
         'title',
         'files',
+        'signed_file',
         'number',
         'to',
         'reviewId',

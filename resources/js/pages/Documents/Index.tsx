@@ -54,15 +54,24 @@ interface Review {
     disetujui?: string;
 }
 
+interface Signature {
+    id: string;
+    type: 'physical' | 'digital';
+    signedAt: string;
+    user: User;
+}
+
 interface Document {
     id: string;
     title: string;
     files: string;
+    signed_file?: string;
     number: string;
     created_at: string;
     user: User;
     toUser: User;
     review: Review;
+    signatures: Signature[];
 }
 
 interface Props {
@@ -157,7 +166,8 @@ export default function DocumentsIndex({ documents, user }: Props) {
                                     <TableHead>Judul</TableHead>
                                     <TableHead>Pengaju</TableHead>
                                     <TableHead>Ditujukan</TableHead>
-                                    <TableHead>Status</TableHead>
+                                    <TableHead>Status Review</TableHead>
+                                    <TableHead>Status TTD</TableHead>
                                     <TableHead>Tanggal</TableHead>
                                     <TableHead>Aksi</TableHead>
                                 </TableRow>
@@ -173,13 +183,33 @@ export default function DocumentsIndex({ documents, user }: Props) {
                                             {document.user.name}
                                         </TableCell>
                                         <TableCell>
-                                        {document.toUser?.name ?? '-'}
-
+                                            {document.toUser?.name ?? '-'}
                                         </TableCell>
                                         <TableCell>
                                             {getStatusBadge(
                                                 document.review.status,
                                             )}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge
+                                                variant={
+                                                    (document.signatures
+                                                        ?.length || 0) > 0
+                                                        ? 'default'
+                                                        : 'secondary'
+                                                }
+                                                className={
+                                                    (document.signatures
+                                                        ?.length || 0) > 0
+                                                        ? 'bg-green-100 text-green-800'
+                                                        : 'bg-gray-100 text-gray-800'
+                                                }
+                                            >
+                                                {(document.signatures?.length ||
+                                                    0) > 0
+                                                    ? 'Sudah TTD'
+                                                    : 'Belum TTD'}
+                                            </Badge>
                                         </TableCell>
                                         <TableCell>
                                             {new Date(

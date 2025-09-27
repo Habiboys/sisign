@@ -181,6 +181,7 @@ class SignatureController extends Controller
             'position.height' => 'nullable|integer|min:25|max:150',
             'position.page' => 'nullable|integer|min:1',
             'passphrase' => 'nullable|string',
+            'signedPdfBase64' => 'nullable|string',
         ]);
 
         try {
@@ -206,7 +207,21 @@ class SignatureController extends Controller
                 'passphrase' => $request->passphrase,
             ]);
 
-            return redirect()->back()->with('success', 'Tanda tangan berhasil ditambahkan (Fisik + Digital)');
+            // Save signed PDF if provided
+            if ($request->signedPdfBase64) {
+                \Log::info('Attempting to save signed PDF', [
+                    'document_id' => $document->id,
+                    'data_length' => strlen($request->signedPdfBase64)
+                ]);
+
+                $this->signatureService->saveSignedPDF($document, $request->signedPdfBase64);
+
+                \Log::info('Signed PDF saved successfully');
+            } else {
+                \Log::warning('No signed PDF data provided');
+            }
+
+            return redirect()->route('documents.show', $document->id)->with('success', 'Tanda tangan berhasil ditambahkan (Fisik + Digital)');
         } catch (\Exception $e) {
             return redirect()->back()->withErrors(['error' => 'Gagal menambahkan tanda tangan: ' . $e->getMessage()]);
         }

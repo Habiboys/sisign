@@ -60,6 +60,7 @@ interface Document {
     id: string;
     title: string;
     files: string;
+    signed_file?: string;
     number: string;
     created_at: string;
     user: User;
@@ -75,6 +76,18 @@ interface Props {
 
 export default function DocumentsShow({ document, user }: Props) {
     const [showReviewForm, setShowReviewForm] = useState(false);
+    
+    // Debug log
+    console.log('Document data:', {
+        id: document.id,
+        signed_file: document.signed_file,
+        signatures_count: document.signatures?.length || 0,
+        iframe_src: document.signed_file
+            ? `/storage/${document.signed_file}`
+            : document.signatures && document.signatures.length > 0
+            ? `/documents/${document.id}/signed-pdf/preview`
+            : `/documents/${document.id}/pdf`
+    });
 
     const {
         data: reviewData,
@@ -127,10 +140,10 @@ export default function DocumentsShow({ document, user }: Props) {
     const canReview =
         (user.role === 'admin' || user.role === 'pimpinan') &&
         document.review.status === 'pending';
-    const canSign = 
-        user.role === 'pimpinan' && 
+    const canSign =
+        user.role === 'pimpinan' &&
         document.review.status === 'approved' &&
-        document.to === user.id;
+        document.to_user.id === user.id;
 
     const handleDeleteSignature = (signatureId: string) => {
         if (confirm('Apakah Anda yakin ingin menghapus tanda tangan ini?')) {
@@ -139,8 +152,11 @@ export default function DocumentsShow({ document, user }: Props) {
                     alert('Tanda tangan berhasil dihapus');
                 },
                 onError: (errors) => {
-                    alert('Gagal menghapus tanda tangan: ' + (Object.values(errors)[0] || 'Unknown error'));
-                }
+                    alert(
+                        'Gagal menghapus tanda tangan: ' +
+                            (Object.values(errors)[0] || 'Unknown error'),
+                    );
+                },
             });
         }
     };
@@ -170,12 +186,16 @@ export default function DocumentsShow({ document, user }: Props) {
                         {canSign && (
                             <Button
                                 onClick={() =>
-                                    router.visit(`/documents/${document.id}/sign`)
+                                    router.visit(
+                                        `/documents/${document.id}/sign`,
+                                    )
                                 }
                                 className="bg-green-600 hover:bg-green-700"
                             >
                                 <Plus className="mr-2 h-4 w-4" />
-                                Tanda Tangan
+                                {(document.signatures?.length || 0) > 0
+                                    ? 'TTD Ulang'
+                                    : 'Tanda Tangan'}
                             </Button>
                         )}
                     </div>
@@ -192,9 +212,20 @@ export default function DocumentsShow({ document, user }: Props) {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <div className="rounded-lg border border-gray-300" style={{ height: '600px' }}>
+                                <div
+                                    className="rounded-lg border border-gray-300"
+                                    style={{ height: '600px' }}
+                                >
                                     <iframe
-                                        src={document.signatures.length > 0 ? `/documents/${document.id}/signed-pdf` : `/documents/${document.id}/pdf`}
+                                        src={
+                                            document.signed_file
+                                                ? `/storage/${document.signed_file}`
+                                                : document.signatures &&
+                                                    document.signatures.length >
+                                                        0
+                                                  ? `/documents/${document.id}/signed-pdf/preview`
+                                                  : `/documents/${document.id}/pdf`
+                                        }
                                         className="h-full w-full rounded-lg"
                                         title="Document Preview"
                                     />
@@ -266,20 +297,72 @@ export default function DocumentsShow({ document, user }: Props) {
                                     </p>
                                 </div>
 
-                                <div>
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium text-gray-600">
+                                            Status TTD:
+                                        </span>
+                                        <Badge
+                                            variant={
+                                                (document.signatures?.length ||
+                                                    0) > 0
+                                                    ? 'default'
+                                                    : 'secondary'
+                                            }
+                                            className={
+                                                (document.signatures?.length ||
+                                                    0) > 0
+                                                    ? 'bg-green-100 text-green-800'
+                                                    : 'bg-gray-100 text-gray-800'
+                                            }
+                                        >
+                                            {(document.signatures?.length ||
+                                                0) > 0
+                                                ? 'Sudah Ditandatangani'
+                                                : 'Belum Ditandatangani'}
+                                        </Badge>
+                                    </div>
+
+                                    {(document.signatures?.length || 0) > 0 && (
+                                        <div className="text-sm text-gray-600">
+                                            <p>
+                                                Ditandatangani oleh:{' '}
+                                                <span className="font-medium">
+                                                    {
+                                                        document.signatures[0]
+                                                            .user.name
+                                                    }
+                                                </span>
+                                            </p>
+                                            <p>
+                                                Tanggal:{' '}
+                                                <span className="font-medium">
+                                                    {new Date(
+                                                        document.signatures[0].signedAt,
+                                                    ).toLocaleDateString(
+                                                        'id-ID',
+                                                    )}
+                                                </span>
+                                            </p>
+                                        </div>
+                                    )}
+
                                     <Button
                                         onClick={() =>
                                             window.open(
-                                                document.signatures.length > 0 
-                                                    ? `/documents/${document.id}/signed-pdf` 
+                                                (document.signatures?.length ||
+                                                    0) > 0
+                                                    ? `/documents/${document.id}/signed-pdf`
                                                     : `/storage/documents/${document.files}`,
                                                 '_blank',
                                             )
                                         }
-                                        className="bg-blue-600 hover:bg-blue-700"
+                                        className="w-full bg-blue-600 hover:bg-blue-700"
                                     >
                                         <Download className="mr-2 h-4 w-4" />
-                                        {document.signatures.length > 0 ? 'Download Dokumen (Signed)' : 'Download Dokumen'}
+                                        {(document.signatures?.length || 0) > 0
+                                            ? 'Download Dokumen (Signed)'
+                                            : 'Download Dokumen'}
                                     </Button>
                                 </div>
                             </CardContent>
@@ -392,7 +475,7 @@ export default function DocumentsShow({ document, user }: Props) {
                             </Card>
                         )}
 
-                        {document.signatures.length > 0 && (
+                        {(document.signatures?.length || 0) > 0 && (
                             <Card>
                                 <CardHeader>
                                     <CardTitle>Tanda Tangan</CardTitle>
@@ -449,15 +532,36 @@ export default function DocumentsShow({ document, user }: Props) {
                                                                 ? 'Digital'
                                                                 : 'Fisik'}
                                                         </Badge>
-                                                        {user.role === 'pimpinan' && (
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => handleDeleteSignature(signature.id)}
-                                                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                                            >
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </Button>
+                                                        {user.role ===
+                                                            'pimpinan' && (
+                                                            <div className="flex space-x-2">
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        handleDeleteSignature(
+                                                                            signature.id,
+                                                                        )
+                                                                    }
+                                                                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                                    title="Hapus TTD"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        router.visit(
+                                                                            `/documents/${document.id}/sign`,
+                                                                        )
+                                                                    }
+                                                                    className="text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                                                                    title="TTD Ulang"
+                                                                >
+                                                                    <Plus className="h-4 w-4" />
+                                                                </Button>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>

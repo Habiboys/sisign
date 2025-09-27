@@ -406,4 +406,52 @@ class SignatureService
             ->get()
             ->toArray();
     }
+
+    public function saveSignedPDF(Document $document, string $signedPdfBase64): void
+    {
+        \Log::info('saveSignedPDF called', [
+            'document_id' => $document->id,
+            'data_length' => strlen($signedPdfBase64)
+        ]);
+
+        // Decode base64 PDF data
+        $pdfData = base64_decode($signedPdfBase64);
+
+        \Log::info('PDF decode result:', [
+            'original_length' => strlen($signedPdfBase64),
+            'decoded_length' => strlen($pdfData),
+            'is_valid' => $pdfData !== false
+        ]);
+
+        if (!$pdfData) {
+            \Log::error('Failed to decode base64 PDF data');
+            throw new \Exception('Failed to decode base64 PDF data');
+        }
+
+        // Generate filename (replace spaces with underscores)
+        $originalFilename = str_replace(' ', '_', $document->files);
+        $filename = 'signed_' . time() . '_' . $originalFilename;
+
+        // Save to storage
+        $path = 'documents/signed/' . $filename;
+        $saved = Storage::disk('public')->put($path, $pdfData);
+
+        if (!$saved) {
+            \Log::error('Failed to save PDF to storage');
+            throw new \Exception('Failed to save PDF to storage');
+        }
+
+        // Update document with signed file path
+        $document->update(['signed_file' => $path]);
+
+        // Verify the saved file
+        $savedFileSize = Storage::disk('public')->size($path);
+        \Log::info('Signed PDF saved successfully', [
+            'document_id' => $document->id,
+            'path' => $path,
+            'original_size' => strlen($pdfData),
+            'saved_size' => $savedFileSize,
+            'size_match' => strlen($pdfData) === $savedFileSize
+        ]);
+    }
 }
