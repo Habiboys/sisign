@@ -35,8 +35,8 @@ RUN composer install --no-dev --no-scripts --no-autoloader
 # Copy package.json files
 COPY package*.json ./
 
-# Install NPM dependencies
-RUN npm install
+# Install NPM dependencies with legacy peer deps to resolve React 19 compatibility
+RUN npm install --legacy-peer-deps
 
 # Create storage directory structure first
 RUN mkdir -p storage/app/public/kepengurusan_lab/sk \

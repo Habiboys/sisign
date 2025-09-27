@@ -1,10 +1,11 @@
 services:
-    app:
+    sisign-app:
+        container_name: sisign-app
         build:
             context: .
             dockerfile: Dockerfile
         ports:
-            - '8000:8000'
+            - '8000:8001'
         env_file:
             - .env
         volumes:
