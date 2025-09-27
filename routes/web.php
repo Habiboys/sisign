@@ -32,13 +32,13 @@ Route::middleware(['auth'])->group(function () {
     // Signatures
     Route::resource('signatures', App\Http\Controllers\SignatureController::class);
     Route::get('signatures/create', [App\Http\Controllers\SignatureController::class, 'create'])->name('signatures.create');
-    
+
     // Signature routes for documents
     Route::get('documents/{document}/sign', [App\Http\Controllers\SignatureController::class, 'show'])->name('documents.sign');
     Route::post('documents/{document}/sign/physical', [App\Http\Controllers\SignatureController::class, 'storePhysical'])->name('signatures.physical');
     Route::post('documents/{document}/sign/digital', [App\Http\Controllers\SignatureController::class, 'storeDigital'])->name('signatures.digital');
     Route::post('documents/{document}/sign/combined', [App\Http\Controllers\SignatureController::class, 'storeCombined'])->name('signatures.combined');
-    Route::get('documents/{document}/signed-pdf/download', [App\Http\Controllers\SignatureController::class, 'generateSignedPDF'])->name('documents.signed-pdf.download');
+    Route::get('documents/{document}/signed-pdf', [App\Http\Controllers\SignatureController::class, 'generateSignedPDF'])->name('documents.signed-pdf');
     Route::post('signatures/{signature}/verify', [App\Http\Controllers\SignatureController::class, 'verifyDigital'])->name('signatures.verify');
     Route::patch('signatures/{signature}/position', [App\Http\Controllers\SignatureController::class, 'updatePosition'])->name('signatures.position');
 

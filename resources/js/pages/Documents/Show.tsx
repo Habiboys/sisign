@@ -100,7 +100,7 @@ export default function DocumentsShow({ document, user }: Props) {
         signatures_count: document.signatures?.length || 0,
         is_truly_signed: isDocumentSigned(),
         iframe_src: isDocumentSigned()
-            ? `/storage/${document.signed_file}`
+            ? `/documents/${document.id}/signed-pdf`
             : `/documents/${document.id}/pdf`,
     });
 
@@ -242,7 +242,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                     <iframe
                                         src={
                                             isDocumentSigned()
-                                                ? `/storage/${document.signed_file}`
+                                                ? `/documents/${document.id}/signed-pdf`
                                                 : `/documents/${document.id}/pdf`
                                         }
                                         className="h-full w-full rounded-lg"
