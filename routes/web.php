@@ -38,12 +38,13 @@ Route::middleware(['auth'])->group(function () {
     Route::post('documents/{document}/sign/physical', [App\Http\Controllers\SignatureController::class, 'storePhysical'])->name('signatures.physical');
     Route::post('documents/{document}/sign/digital', [App\Http\Controllers\SignatureController::class, 'storeDigital'])->name('signatures.digital');
     Route::post('documents/{document}/sign/combined', [App\Http\Controllers\SignatureController::class, 'storeCombined'])->name('signatures.combined');
-    Route::get('documents/{document}/signed-pdf', [App\Http\Controllers\SignatureController::class, 'generateSignedPDF'])->name('documents.signed-pdf');
+    Route::get('documents/{document}/signed-pdf/download', [App\Http\Controllers\SignatureController::class, 'generateSignedPDF'])->name('documents.signed-pdf.download');
     Route::post('signatures/{signature}/verify', [App\Http\Controllers\SignatureController::class, 'verifyDigital'])->name('signatures.verify');
     Route::patch('signatures/{signature}/position', [App\Http\Controllers\SignatureController::class, 'updatePosition'])->name('signatures.position');
 
     // File access routes
     Route::get('documents/{document}/pdf', [App\Http\Controllers\DocumentController::class, 'viewPDF'])->name('documents.pdf');
+    Route::get('documents/{document}/signed-pdf', [App\Http\Controllers\DocumentController::class, 'viewSignedPDF'])->name('documents.signed-pdf');
     Route::get('documents/{document}/signed-pdf/preview', [App\Http\Controllers\SignatureController::class, 'previewSignedPDF'])->name('documents.signed-pdf.preview');
 
     // Encryption Keys Management
