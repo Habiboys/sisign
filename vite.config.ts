@@ -23,7 +23,16 @@ export default defineConfig({
     assetsInclude: ['**/*.worker.js', '**/*.worker.min.js'],
     server: {
         fs: {
-            allow: ['..']
-        }
-    }
+            allow: ['..'],
+        },
+    },
+    build: {
+        rollupOptions: {
+            output: {
+                assetFileNames: 'assets/[name]-[hash][extname]',
+                chunkFileNames: 'assets/[name]-[hash].js',
+                entryFileNames: 'assets/[name]-[hash].js',
+            },
+        },
+    },
 });
