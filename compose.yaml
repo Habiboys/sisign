@@ -11,7 +11,7 @@ services:
             - ./storage:/var/www/html/storage
             - ./public/storage:/var/www/html/public/storage
         networks:
-            - silab_network
+            - sisign_network
         command: >
             sh -c "
               mkdir -p /var/www/html/bootstrap/cache &&
@@ -23,5 +23,5 @@ services:
             "
 
 networks:
-    silab_network:
+    sisign_network:
         driver: bridge
