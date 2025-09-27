@@ -44,7 +44,6 @@ Route::middleware(['auth'])->group(function () {
 
     // File access routes
     Route::get('documents/{document}/pdf', [App\Http\Controllers\DocumentController::class, 'viewPDF'])->name('documents.pdf');
-    Route::get('documents/{document}/signed-pdf', [App\Http\Controllers\DocumentController::class, 'viewSignedPDF'])->name('documents.signed-pdf');
     Route::get('documents/{document}/signed-pdf/preview', [App\Http\Controllers\SignatureController::class, 'previewSignedPDF'])->name('documents.signed-pdf.preview');
 
     // Encryption Keys Management

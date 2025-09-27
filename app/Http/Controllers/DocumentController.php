@@ -181,23 +181,4 @@ class DocumentController extends Controller
             'Access-Control-Allow-Origin' => '*',
         ]);
     }
-
-    public function viewSignedPDF(Document $document)
-    {
-        if (!$document->signed_file) {
-            abort(404, 'Signed file not found');
-        }
-
-        $filePath = $document->signed_file;
-
-        if (!Storage::disk('public')->exists($filePath)) {
-            abort(404, 'Signed file not found');
-        }
-
-        return Storage::disk('public')->response($filePath, null, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline',
-            'Access-Control-Allow-Origin' => '*',
-        ]);
-    }
 }
