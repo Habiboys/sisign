@@ -24,6 +24,10 @@ class Sertifikat extends Model
         'updatedAt' => 'datetime',
     ];
 
+    // Override timestamp column names
+    const CREATED_AT = 'created_at';
+    const UPDATED_AT = 'updatedAt';
+
     public function templateSertif(): BelongsTo
     {
         return $this->belongsTo(TemplateSertif::class, 'templateSertifId');

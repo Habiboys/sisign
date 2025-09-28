@@ -19,12 +19,17 @@ class TemplateSertif extends Model
         'title',
         'description',
         'reviewId',
+        'signed_template_path',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
         'updatedAt' => 'datetime',
     ];
+
+    // Override timestamp column names
+    const CREATED_AT = 'created_at';
+    const UPDATED_AT = 'updatedAt';
 
     public function review(): BelongsTo
     {

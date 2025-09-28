@@ -24,10 +24,28 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('templates', App\Http\Controllers\TemplateSertifController::class);
     Route::post('templates/{template}/review', [App\Http\Controllers\TemplateSertifController::class, 'review'])->name('templates.review');
 
+    // Template Guide
+    Route::get('template-guide', [App\Http\Controllers\TemplateGuideController::class, 'index'])->name('template-guide.index');
+    Route::get('template-guide/download-example', [App\Http\Controllers\TemplateGuideController::class, 'downloadExampleTemplate'])->name('template-guide.download-example');
+
     // Certificates
     Route::resource('certificates', App\Http\Controllers\SertifikatController::class);
     Route::get('certificates/bulk/create', [App\Http\Controllers\SertifikatController::class, 'bulkCreate'])->name('certificates.bulk.create');
     Route::post('certificates/bulk', [App\Http\Controllers\SertifikatController::class, 'bulkStore'])->name('certificates.bulk.store');
+
+    // Certificate template signing
+    Route::post('templates/{template}/sign', [App\Http\Controllers\SertifikatController::class, 'signTemplate'])->name('templates.sign');
+    Route::get('templates/{template}/check-signed', [App\Http\Controllers\SertifikatController::class, 'checkTemplateSigned'])->name('templates.check-signed');
+
+    // Certificate generation and download
+    Route::post('certificates/generate-bulk', [App\Http\Controllers\SertifikatController::class, 'generateBulkCertificates'])->name('certificates.generate-bulk');
+    Route::post('certificates/generate-from-excel', [App\Http\Controllers\SertifikatController::class, 'generateBulkFromExcel'])->name('certificates.generate-from-excel');
+    Route::get('certificates/{certificate}/download', [App\Http\Controllers\SertifikatController::class, 'downloadCertificate'])->name('certificates.download');
+    Route::post('certificates/download-bulk', [App\Http\Controllers\SertifikatController::class, 'downloadBulkCertificates'])->name('certificates.download-bulk');
+
+    // Excel template and email
+    Route::get('templates/{template}/download-excel-template', [App\Http\Controllers\SertifikatController::class, 'downloadExcelTemplate'])->name('templates.download-excel-template');
+    Route::post('certificates/send-emails', [App\Http\Controllers\SertifikatController::class, 'sendCertificateEmails'])->name('certificates.send-emails');
 
     // Signatures
     Route::resource('signatures', App\Http\Controllers\SignatureController::class);

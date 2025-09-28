@@ -17,7 +17,7 @@ interface Review {
     id: string;
     status: 'pending' | 'approved' | 'rejected';
     komentar?: string;
-    disetujui?: {
+    disetujuiBy?: {
         id: string;
         name: string;
     };
@@ -220,7 +220,7 @@ export default function TemplatesShow({ template, user }: Props) {
                                     </div>
                                 )}
 
-                                {template.review.disetujui && (
+                                {template.review.disetujuiBy && (
                                     <div>
                                         <h4 className="font-medium text-gray-900">
                                             Disetujui Oleh
@@ -228,7 +228,10 @@ export default function TemplatesShow({ template, user }: Props) {
                                         <div className="flex items-center">
                                             <User className="mr-2 h-4 w-4 text-gray-500" />
                                             <span className="text-gray-600">
-                                                {template.review.disetujui.name}
+                                                {
+                                                    template.review.disetujuiBy
+                                                        .name
+                                                }
                                             </span>
                                         </div>
                                     </div>
@@ -252,10 +255,3 @@ export default function TemplatesShow({ template, user }: Props) {
         </AppLayout>
     );
 }
-
-
-
-
-
-
-

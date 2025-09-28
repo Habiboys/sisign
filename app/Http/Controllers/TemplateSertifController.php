@@ -84,7 +84,7 @@ class TemplateSertifController extends Controller
 
     public function show(TemplateSertif $template)
     {
-        $template->load(['review.disetujui', 'sertifikats.certificateRecipients.user']);
+        $template->load(['review.disetujuiBy', 'sertifikats.certificateRecipients.user']);
 
         return Inertia::render('Templates/Show', [
             'template' => $template,
