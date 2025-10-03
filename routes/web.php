@@ -12,6 +12,7 @@ Route::get('/', function () {
 
 // Public verification route
 Route::get('verify-document/{document}', [App\Http\Controllers\SignatureController::class, 'verifyDocument'])->name('documents.verify');
+Route::get('verify-template/{template}', [App\Http\Controllers\TemplateSertifController::class, 'verifyTemplate'])->name('templates.verify');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('dashboard', [App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
@@ -22,6 +23,10 @@ Route::middleware(['auth'])->group(function () {
 
     // Templates
     Route::resource('templates', App\Http\Controllers\TemplateSertifController::class);
+    Route::get('templates/{template}/sign', [App\Http\Controllers\TemplateSertifController::class, 'sign'])->name('templates.sign');
+    Route::get('templates/{template}/preview', [App\Http\Controllers\TemplateSertifController::class, 'preview'])->name('templates.preview');
+    Route::get('templates/{template}/download-signed', [App\Http\Controllers\TemplateSertifController::class, 'downloadSigned'])->name('templates.download-signed');
+    Route::delete('templates/{template}/remove-signature', [App\Http\Controllers\TemplateSertifController::class, 'removeSignature'])->name('templates.remove-signature');
     Route::post('templates/{template}/review', [App\Http\Controllers\TemplateSertifController::class, 'review'])->name('templates.review');
 
     // Template Guide

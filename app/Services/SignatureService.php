@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Document;
 use App\Models\EncryptionKey;
 use App\Models\Signature;
+use App\Models\TemplateSertif;
 use App\Models\User;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
@@ -27,27 +28,57 @@ class SignatureService
      */
     public function createPhysicalSignature(array $data): Signature
     {
-        $documentId = $data['documentId'];
+        $documentId = $data['documentId'] ?? null;
+        $templateSertifId = $data['templateSertifId'] ?? null;
         $userId = $data['userId'];
         $signatureData = $data['signatureData']; // base64 canvas data
         $position = $data['position'] ?? [];
 
-        // Decode base64 signature data
-        $signatureImage = $this->saveCanvasSignature($signatureData, $userId);
-
-        return Signature::create([
+        Log::info('SignatureService: Creating physical signature', [
             'documentId' => $documentId,
+            'templateSertifId' => $templateSertifId,
             'userId' => $userId,
-            'type' => 'physical',
-            'signatureFile' => $signatureImage,
-            'signatureData' => $signatureData,
-            'position_x' => $position['x'] ?? null,
-            'position_y' => $position['y'] ?? null,
-            'width' => $position['width'] ?? 150,
-            'height' => $position['height'] ?? 75,
-            'page_number' => $position['page'] ?? 1,
-            'signedAt' => now(),
+            'position' => $position,
+            'signatureDataLength' => strlen($signatureData),
         ]);
+
+        // Ensure either documentId or templateSertifId is provided
+        if (!$documentId && !$templateSertifId) {
+            throw new Exception('Either documentId or templateSertifId must be provided');
+        }
+
+        try {
+            // Decode base64 signature data
+            Log::info('SignatureService: Saving canvas signature');
+            $signatureImage = $this->saveCanvasSignature($signatureData, $userId);
+            Log::info('SignatureService: Canvas signature saved', ['path' => $signatureImage]);
+
+            Log::info('SignatureService: Creating signature record in database');
+            $signature = Signature::create([
+                'documentId' => $documentId,
+                'templateSertifId' => $templateSertifId,
+                'userId' => $userId,
+                'type' => 'physical',
+                'signatureFile' => $signatureImage,
+                'signatureData' => $signatureData,
+                'position_x' => $position['x'] ?? null,
+                'position_y' => $position['y'] ?? null,
+                'width' => $position['width'] ?? 150,
+                'height' => $position['height'] ?? 75,
+                'page_number' => $position['page'] ?? 1,
+                'signedAt' => now(),
+            ]);
+
+            Log::info('SignatureService: Physical signature created successfully', ['id' => $signature->id]);
+
+            return $signature;
+        } catch (\Exception $e) {
+            Log::error('SignatureService: Failed to create physical signature', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
     }
 
     /**
@@ -55,9 +86,15 @@ class SignatureService
      */
     public function createDigitalSignature(array $data): Signature
     {
-        $documentId = $data['documentId'];
+        $documentId = $data['documentId'] ?? null;
+        $templateSertifId = $data['templateSertifId'] ?? null;
         $userId = $data['userId'];
         $position = $data['position'] ?? [];
+
+        // Ensure either documentId or templateSertifId is provided
+        if (!$documentId && !$templateSertifId) {
+            throw new Exception('Either documentId or templateSertifId must be provided');
+        }
 
         // Get user's encryption keys
         $encryptionKey = EncryptionKey::where('userId', $userId)->first();
@@ -65,15 +102,20 @@ class SignatureService
             throw new Exception('User encryption keys not found. Please generate keys first.');
         }
 
-        // Get document to sign
-        $document = Document::findOrFail($documentId);
+        // Create document hash
+        if ($documentId) {
+            $document = Document::findOrFail($documentId);
+            $documentHash = $this->createDocumentHash($document);
+        } else {
+            $template = TemplateSertif::findOrFail($templateSertifId);
+            $documentHash = $this->createTemplateHash($template);
+        }
 
-        // Create digital signature hash
-        $documentHash = $this->createDocumentHash($document);
         $digitalSignature = $this->encryptionService->signData($documentHash, $encryptionKey->privateKey, $data['passphrase'] ?? null);
 
         return Signature::create([
             'documentId' => $documentId,
+            'templateSertifId' => $templateSertifId,
             'userId' => $userId,
             'type' => 'digital',
             'signatureHash' => $documentHash,
@@ -304,6 +346,17 @@ class SignatureService
     }
 
     /**
+     * Create template hash for digital signature
+     */
+    private function createTemplateHash(TemplateSertif $template): string
+    {
+        $templatePath = storage_path('app/public/templates/' . $template->files);
+        $templateContent = file_get_contents($templatePath);
+
+        return hash('sha256', $templateContent . $template->id . now()->timestamp);
+    }
+
+    /**
      * Add verification QR code to bottom right corner
      */
     private function addVerificationQRCode(Fpdi $pdf, Document $document, array $pageSize): void
@@ -409,7 +462,7 @@ class SignatureService
 
     public function saveSignedPDF(Document $document, string $signedPdfBase64): void
     {
-        \Log::info('saveSignedPDF called', [
+        Log::info('saveSignedPDF called', [
             'document_id' => $document->id,
             'data_length' => strlen($signedPdfBase64)
         ]);
@@ -417,14 +470,14 @@ class SignatureService
         // Decode base64 PDF data
         $pdfData = base64_decode($signedPdfBase64);
 
-        \Log::info('PDF decode result:', [
+        Log::info('PDF decode result:', [
             'original_length' => strlen($signedPdfBase64),
             'decoded_length' => strlen($pdfData),
             'is_valid' => $pdfData !== false
         ]);
 
         if (!$pdfData) {
-            \Log::error('Failed to decode base64 PDF data');
+            Log::error('Failed to decode base64 PDF data');
             throw new \Exception('Failed to decode base64 PDF data');
         }
 
@@ -437,7 +490,7 @@ class SignatureService
         $saved = Storage::disk('public')->put($path, $pdfData);
 
         if (!$saved) {
-            \Log::error('Failed to save PDF to storage');
+            Log::error('Failed to save PDF to storage');
             throw new \Exception('Failed to save PDF to storage');
         }
 
@@ -446,8 +499,56 @@ class SignatureService
 
         // Verify the saved file
         $savedFileSize = Storage::disk('public')->size($path);
-        \Log::info('Signed PDF saved successfully', [
+        Log::info('Signed PDF saved successfully', [
             'document_id' => $document->id,
+            'path' => $path,
+            'original_size' => strlen($pdfData),
+            'saved_size' => $savedFileSize,
+            'size_match' => strlen($pdfData) === $savedFileSize
+        ]);
+    }
+
+    public function saveSignedPDFTemplate(TemplateSertif $template, string $signedPdfBase64): void
+    {
+        Log::info('saveSignedPDFTemplate called', [
+            'template_id' => $template->id,
+            'data_length' => strlen($signedPdfBase64)
+        ]);
+
+        // Decode base64 PDF data
+        $pdfData = base64_decode($signedPdfBase64);
+
+        Log::info('Template PDF decode result:', [
+            'original_length' => strlen($signedPdfBase64),
+            'decoded_length' => strlen($pdfData),
+            'is_valid' => $pdfData !== false
+        ]);
+
+        if (!$pdfData) {
+            Log::error('Failed to decode base64 PDF data for template');
+            throw new \Exception('Failed to decode base64 PDF data for template');
+        }
+
+        // Generate filename (consistent with document approach)
+        $originalFilename = str_replace(' ', '_', $template->files);
+        $filename = 'signed_' . time() . '_' . $originalFilename;
+
+        // Save to storage (same approach as document)
+        $path = 'templates/signed/' . $filename;
+        $saved = Storage::disk('public')->put($path, $pdfData);
+
+        if (!$saved) {
+            Log::error('Failed to save template PDF to storage');
+            throw new \Exception('Failed to save template PDF to storage');
+        }
+
+        // Update template with signed file path (relative path like document)
+        $template->update(['signed_template_path' => $path]);
+
+        // Verify the saved file
+        $savedFileSize = Storage::disk('public')->size($path);
+        Log::info('Signed template PDF saved successfully', [
+            'template_id' => $template->id,
             'path' => $path,
             'original_size' => strlen($pdfData),
             'saved_size' => $savedFileSize,

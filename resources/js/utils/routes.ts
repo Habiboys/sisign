@@ -27,6 +27,7 @@ export const routes = {
             create: () => '/certificates/bulk/create',
             store: () => '/certificates/bulk',
         },
+        generateFromExcel: () => '/certificates/generate-from-excel',
     },
     signatures: {
         create: (params?: { document_id?: string; template_id?: string }) => {

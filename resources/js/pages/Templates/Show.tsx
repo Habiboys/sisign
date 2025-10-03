@@ -1,10 +1,12 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import ConfirmModal from '@/components/ui/confirm-modal';
+import { useModal } from '@/hooks/use-modal';
 import AppLayout from '@/layouts/app-layout';
-import { routes } from '@/utils/routes';
 import { Head, router } from '@inertiajs/react';
-import { Calendar, Eye, FileCheck, Plus, User } from 'lucide-react';
+import { Calendar, Eye, FileCheck, Plus, Trash2, User } from 'lucide-react';
+import { useState } from 'react';
 
 interface User {
     id: string;
@@ -29,6 +31,7 @@ interface Template {
     title: string;
     description?: string;
     files: string;
+    signed_template_path?: string;
     review: Review;
     created_at: string;
     updatedAt: string;
@@ -40,6 +43,9 @@ interface Props {
 }
 
 export default function TemplatesShow({ template, user }: Props) {
+    const [isRemoving, setIsRemoving] = useState(false);
+    const confirmModal = useModal();
+
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'approved':
@@ -70,7 +76,32 @@ export default function TemplatesShow({ template, user }: Props) {
     };
 
     const canSign =
-        user.role === 'pimpinan' && template.review.status === 'approved';
+        user.role === 'pimpinan' &&
+        template.review.status === 'approved' &&
+        !template.signed_template_path;
+
+    const canRemoveSignature =
+        user.role === 'pimpinan' && template.signed_template_path;
+
+    const handleRemoveSignature = () => {
+        confirmModal.open();
+    };
+
+    const confirmRemoveSignature = () => {
+        setIsRemoving(true);
+        router.delete(`/templates/${template.id}/remove-signature`, {
+            onSuccess: () => {
+                setIsRemoving(false);
+                confirmModal.close();
+            },
+            onError: () => {
+                setIsRemoving(false);
+            },
+            onFinish: () => {
+                setIsRemoving(false);
+            },
+        });
+    };
 
     return (
         <AppLayout>
@@ -87,18 +118,50 @@ export default function TemplatesShow({ template, user }: Props) {
                     </div>
                     <div className="flex items-center space-x-2">
                         {getStatusBadge(template.review.status)}
+                        {template.signed_template_path && (
+                            <Badge className="bg-blue-100 text-blue-800">
+                                ✓ Sudah Ditandatangani (Fisik + Digital)
+                            </Badge>
+                        )}
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                    {/* Template Details */}
+                    {/* Template Preview */}
                     <div className="lg:col-span-2">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center">
                                     <FileCheck className="mr-2 h-5 w-5" />
-                                    Informasi Template
+                                    {template.signed_template_path
+                                        ? 'Template Bertanda Tangan'
+                                        : 'Preview Template'}
                                 </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div
+                                    className="rounded-lg border border-gray-300"
+                                    style={{ height: '600px' }}
+                                >
+                                    <iframe
+                                        src={
+                                            template.signed_template_path
+                                                ? `/storage/${template.signed_template_path}`
+                                                : `/templates/${template.id}/preview`
+                                        }
+                                        className="h-full w-full rounded-lg"
+                                        title="Template Preview"
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* Template Details */}
+                    <div className="space-y-6">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Informasi Template</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div>
@@ -130,7 +193,7 @@ export default function TemplatesShow({ template, user }: Props) {
                                     </p>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4">
                                     <div>
                                         <h4 className="font-medium text-gray-900">
                                             Tanggal Dibuat
@@ -154,10 +217,6 @@ export default function TemplatesShow({ template, user }: Props) {
                                 </div>
                             </CardContent>
                         </Card>
-                    </div>
-
-                    {/* Actions & Review Status */}
-                    <div className="space-y-6">
                         {/* Actions */}
                         <Card>
                             <CardHeader>
@@ -168,26 +227,57 @@ export default function TemplatesShow({ template, user }: Props) {
                                     variant="outline"
                                     className="w-full"
                                     onClick={() =>
-                                        window.open(template.files, '_blank')
+                                        window.open(
+                                            `/templates/${template.id}/preview`,
+                                            '_blank',
+                                        )
                                     }
                                 >
                                     <Eye className="mr-2 h-4 w-4" />
-                                    Lihat File
+                                    Lihat File Template
                                 </Button>
+
+                                {template.signed_template_path && (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full"
+                                        onClick={() =>
+                                            window.open(
+                                                `/templates/${template.id}/download-signed`,
+                                                '_blank',
+                                            )
+                                        }
+                                    >
+                                        <Eye className="mr-2 h-4 w-4" />
+                                        Lihat Template Bertanda Tangan
+                                    </Button>
+                                )}
 
                                 {canSign && (
                                     <Button
                                         className="w-full bg-green-600 hover:bg-green-700"
                                         onClick={() =>
                                             router.visit(
-                                                routes.signatures.create({
-                                                    template_id: template.id,
-                                                }),
+                                                `/templates/${template.id}/sign`,
                                             )
                                         }
                                     >
                                         <Plus className="mr-2 h-4 w-4" />
                                         Tanda Tangan Template
+                                    </Button>
+                                )}
+
+                                {canRemoveSignature && (
+                                    <Button
+                                        variant="outline"
+                                        onClick={handleRemoveSignature}
+                                        className="w-full text-red-600 hover:bg-red-50 hover:text-red-700"
+                                        disabled={isRemoving}
+                                    >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        {isRemoving
+                                            ? 'Menghapus...'
+                                            : 'Hapus Tanda Tangan'}
                                     </Button>
                                 )}
                             </CardContent>
@@ -252,6 +342,17 @@ export default function TemplatesShow({ template, user }: Props) {
                     </div>
                 </div>
             </div>
+
+            <ConfirmModal
+                open={confirmModal.isOpen}
+                onClose={confirmModal.close}
+                onConfirm={confirmRemoveSignature}
+                title="Hapus Tanda Tangan Template"
+                description="Apakah Anda yakin ingin menghapus tanda tangan dari template ini? Template perlu ditandatangani ulang sebelum bisa digunakan untuk membuat sertifikat."
+                confirmText="Hapus"
+                cancelText="Batal"
+                variant="destructive"
+            />
         </AppLayout>
     );
 }

@@ -7,6 +7,7 @@ use App\Models\TemplateSertif;
 use App\Models\CertificateRecipient;
 use App\Models\User;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use setasign\Fpdi\Fpdi;
 use Exception;
 
@@ -71,9 +72,19 @@ class CertificateService
 
     public function generateBulkCertificatesFromExcel(array $data): array
     {
+        Log::info('CertificateService::generateBulkCertificatesFromExcel called', [
+            'templateSertifId' => $data['templateSertifId'],
+            'excelData_count' => count($data['excelData'] ?? [])
+        ]);
+
         $template = TemplateSertif::findOrFail($data['templateSertifId']);
         $excelData = $data['excelData'];
         $signedTemplatePath = $this->getSignedTemplatePath($template);
+
+        Log::info('Template and signed path found', [
+            'template_id' => $template->id,
+            'signed_path' => $signedTemplatePath
+        ]);
 
         if (!$signedTemplatePath) {
             throw new Exception('Template belum ditandatangani. Silakan tandatangani template terlebih dahulu.');
@@ -82,7 +93,11 @@ class CertificateService
         $generatedCertificates = [];
         $errors = [];
 
+        Log::info('Starting to process excel data', ['count' => count($excelData)]);
+
         foreach ($excelData as $index => $row) {
+            Log::info('Processing row', ['index' => $index, 'row' => $row]);
+            
             try {
                 $nomorSertif = $row['nomor_sertif'] ?? null;
                 $userEmail = $row['email'] ?? null;
@@ -94,20 +109,37 @@ class CertificateService
                 }
 
                 $user = \App\Models\User::where('email', $userEmail)->first();
+                Log::info('Looking for user', ['email' => $userEmail, 'user_found' => $user ? 'YES' : 'NO']);
+                
                 if (!$user) {
-                    $errors[] = "Baris " . ($index + 1) . ": User dengan email $userEmail tidak ditemukan";
-                    continue;
+                    // Auto-create user dari data Excel
+                    $namaLengkap = $row['nama_lengkap'] ?? 'User';
+                    $user = \App\Models\User::create([
+                        'name' => $namaLengkap,
+                        'email' => $userEmail,
+                        'password' => bcrypt('defaultpassword'), // Default password
+                        'role' => 'pengaju',
+                        'email_verified_at' => now()
+                    ]);
+                    Log::info('User auto-created from Excel data', ['user_id' => $user->id, 'email' => $userEmail]);
                 }
+
+                Log::info('User found, checking nomor sertif', ['user_id' => $user->id, 'nomor_sertif' => $nomorSertif]);
 
                 if (\App\Models\Sertifikat::where('nomor_sertif', $nomorSertif)->exists()) {
                     $errors[] = "Baris " . ($index + 1) . ": Nomor sertifikat $nomorSertif sudah ada";
+                    Log::info('Nomor sertifikat already exists, skipping', ['nomor_sertif' => $nomorSertif]);
                     continue;
                 }
+
+                Log::info('Creating sertifikat', ['nomor_sertif' => $nomorSertif, 'template_id' => $template->id]);
 
                 $sertifikat = Sertifikat::create([
                     'templateSertifId' => $template->id,
                     'nomor_sertif' => $nomorSertif
                 ]);
+
+                Log::info('Sertifikat created, creating recipient', ['sertifikat_id' => $sertifikat->id]);
 
                 CertificateRecipient::create([
                     'sertifikatId' => $sertifikat->id,
@@ -115,12 +147,29 @@ class CertificateService
                     'issuedAt' => $issuedAt
                 ]);
 
-                $certificatePdf = $this->generateIndividualCertificateFromExcel(
-                    $signedTemplatePath,
-                    $sertifikat,
-                    $user,
-                    $row
-                );
+                Log::info('CertificateRecipient created, generating PDF', [
+                    'sertifikat_id' => $sertifikat->id,
+                    'user_id' => $user->id
+                ]);
+
+                try {
+                    $certificatePdf = $this->generateIndividualCertificateFromExcel(
+                        $signedTemplatePath,
+                        $sertifikat,
+                        $user,
+                        $row
+                    );
+
+                    Log::info('Certificate PDF generated successfully', ['pdf_path' => $certificatePdf]);
+                } catch (\Exception $e) {
+                    Log::error('Error generating certificate PDF', [
+                        'error' => $e->getMessage(),
+                        'sertifikat_id' => $sertifikat->id,
+                        'line' => $e->getLine(),
+                        'file' => $e->getFile()
+                    ]);
+                    throw $e; // Re-throw to be caught by outer try-catch
+                }
 
                 $generatedCertificates[] = [
                     'sertifikat' => $sertifikat,
@@ -149,7 +198,13 @@ class CertificateService
             throw new Exception('File template tidak ditemukan');
         }
 
-        $signedPath = $this->getSignedTemplatePath($template);
+        $signedPath = storage_path('app/signed_templates/' . $template->id . '.pdf');
+
+        // Create directory if it doesn't exist
+        $signedDir = dirname($signedPath);
+        if (!is_dir($signedDir)) {
+            mkdir($signedDir, 0755, true);
+        }
 
         $pdf = new Fpdi();
         $pageCount = $pdf->setSourceFile($templatePath);
@@ -199,10 +254,21 @@ class CertificateService
 
     private function generateIndividualCertificateFromExcel(string $signedTemplatePath, Sertifikat $sertifikat, User $user, array $excelRow): string
     {
+        Log::info('Starting generateIndividualCertificateFromExcel', [
+            'signedTemplatePath' => $signedTemplatePath,
+            'sertifikat_id' => $sertifikat->id,
+            'user_id' => $user->id,
+            'excelRow' => $excelRow
+        ]);
+
         $pdf = new Fpdi();
         $pageCount = $pdf->setSourceFile($signedTemplatePath);
 
+        Log::info('PDF template loaded', ['pageCount' => $pageCount]);
+
         $outputPath = storage_path('app/certificates/' . $sertifikat->id . '.pdf');
+        
+        Log::info('Output path determined', ['outputPath' => $outputPath]);
 
         for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
             $templateId = $pdf->importPage($pageNo);
@@ -221,23 +287,22 @@ class CertificateService
 
     private function addTemplateSignature(Fpdi $pdf, User $signer, array $signatureData, array $pageSize): void
     {
-        $pdf->SetFont('Arial', 'B', 12);
-        $pdf->SetTextColor(0, 0, 0);
-
-        $signatureY = $pageSize['height'] - 80;
-
-        $pdf->SetXY(50, $signatureY);
-        $pdf->Cell(100, 10, 'Ditandatangani secara digital oleh:', 0, 1, 'L');
-
-        $pdf->SetXY(50, $signatureY + 20);
-        $pdf->Cell(100, 10, $signer->name, 0, 1, 'L');
-
-        $pdf->SetXY(50, $signatureY + 30);
-        $pdf->Cell(100, 10, 'Tanggal: ' . now()->format('d/m/Y H:i:s'), 0, 1, 'L');
-
-        if (isset($signatureData['signatureImage'])) {
-            $this->addSignatureImage($pdf, $signatureData['signatureImage'], 50, $signatureY + 40, 80, 30);
+        // Handle signature image from canvas (base64 data)
+        if (isset($signatureData['signatureData'])) {
+            // Extract and add the signature image directly from canvas
+            $this->addSignatureImage($pdf, $signatureData['signatureData'], 0, 0, $pageSize['width'], $pageSize['height']);
         }
+
+        // Add digital signature info as text (optional, since we have QR code)
+        $pdf->SetFont('Arial', '', 8);
+        $pdf->SetTextColor(100, 100, 100);
+
+        $signatureY = $pageSize['height'] - 15;
+        $pdf->SetXY(50, $signatureY);
+        $pdf->Cell(100, 5, 'Template ditandatangani digital oleh: ' . $signer->name, 0, 1, 'L');
+
+        $pdf->SetXY(50, $signatureY + 5);
+        $pdf->Cell(100, 5, 'Tanggal: ' . now()->format('d/m/Y H:i:s'), 0, 1, 'L');
     }
 
     private function addDynamicData(Fpdi $pdf, Sertifikat $sertifikat, User $recipient, array $pageSize): void
@@ -318,12 +383,35 @@ class CertificateService
 
     private function getSignedTemplatePath(TemplateSertif $template): ?string
     {
-        if ($template->signed_template_path && file_exists($template->signed_template_path)) {
-            return $template->signed_template_path;
+        Log::info('Checking signed template path', [
+            'template_id' => $template->id,
+            'signed_template_path' => $template->signed_template_path,
+        ]);
+
+        if ($template->signed_template_path) {
+            // Try dengan storage_path untuk path relatif dari database
+            $fullPath = storage_path('app/public/' . $template->signed_template_path);
+            if (file_exists($fullPath)) {
+                Log::info('Using signed_template_path from database with storage_path', ['path' => $fullPath]);
+                return $fullPath;
+            }
+
+            // Try path absolut
+            if (file_exists($template->signed_template_path)) {
+                Log::info('Using absolute signed_template_path from database');
+                return $template->signed_template_path;
+            }
         }
 
         $defaultPath = storage_path('app/signed_templates/' . $template->id . '.pdf');
-        return file_exists($defaultPath) ? $defaultPath : null;
+        $defaultExists = file_exists($defaultPath);
+        
+        Log::info('Checking default path', [
+            'default_path' => $defaultPath,
+            'default_exists' => $defaultExists
+        ]);
+
+        return $defaultExists ? $defaultPath : null;
     }
 
     public function isTemplateSigned(TemplateSertif $template): bool

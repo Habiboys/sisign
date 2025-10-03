@@ -48,8 +48,8 @@ class SignatureController extends Controller
         }
 
         if ($templateId) {
-            // For templates, redirect to templates show page
-            return redirect()->route('templates.show', $templateId);
+            // For templates, redirect to template sign page
+            return redirect()->route('templates.sign', $templateId);
         }
 
         abort(404);

@@ -94,14 +94,28 @@ export default function CertificatesCreate({ templates, user }: Props) {
                                         <SelectValue placeholder="Pilih template sertifikat" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {templates.map((template) => (
-                                            <SelectItem
-                                                key={template.id}
-                                                value={template.id}
-                                            >
-                                                {template.title}
-                                            </SelectItem>
-                                        ))}
+                                        {templates.length === 0 ? (
+                                            <div className="p-4 text-center text-gray-500">
+                                                <p>
+                                                    Tidak ada template yang
+                                                    tersedia.
+                                                </p>
+                                                <p className="text-sm">
+                                                    Template harus disetujui dan
+                                                    ditandatangani pimpinan
+                                                    terlebih dahulu.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            templates.map((template) => (
+                                                <SelectItem
+                                                    key={template.id}
+                                                    value={template.id}
+                                                >
+                                                    {template.title}
+                                                </SelectItem>
+                                            ))
+                                        )}
                                     </SelectContent>
                                 </Select>
                                 {errors.templateSertifId && (

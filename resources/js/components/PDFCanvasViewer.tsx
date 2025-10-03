@@ -18,6 +18,7 @@ interface PDFCanvasViewerProps {
     ) => void;
     canEdit?: boolean;
     documentId: string;
+    isTemplate?: boolean; // Add flag to differentiate template from document
 }
 
 export default function PDFCanvasViewer({
@@ -25,6 +26,7 @@ export default function PDFCanvasViewer({
     onSave,
     canEdit = false,
     documentId,
+    isTemplate = false,
 }: PDFCanvasViewerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -553,7 +555,10 @@ export default function PDFCanvasViewer({
 
             // Generate QR code image with verification link
             const baseUrl = window.location.origin;
-            const qrCodeData = `${baseUrl}/verify-document/${documentId}`;
+            const qrCodeData = isTemplate
+                ? `${baseUrl}/verify-template/${documentId}`
+                : `${baseUrl}/verify-document/${documentId}`;
+            console.log('QR Code data:', qrCodeData, 'isTemplate:', isTemplate);
             const qrCodeImageData = await QRCode.toDataURL(qrCodeData, {
                 width: 60,
                 margin: 1,
@@ -767,6 +772,13 @@ export default function PDFCanvasViewer({
                                 Passphrase wajib diisi
                             </span>{' '}
                             untuk keamanan digital signature
+                        </li>
+                        <li>
+                            • PDF yang dihasilkan akan memiliki:{' '}
+                            <span className="font-medium text-green-600">
+                                Tanda tangan fisik (gambar) + QR Code verifikasi
+                                digital
+                            </span>
                         </li>
                         <li>
                             • TTD dan stempel akan langsung digambar di PDF

@@ -27,6 +27,7 @@ class Signature extends Model
         'digital_signature',
         'signature_timestamp',
         'certificate_info',
+        'signedAt',
     ];
 
     protected $casts = [

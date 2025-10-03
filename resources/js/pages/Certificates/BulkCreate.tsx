@@ -38,14 +38,35 @@ interface Props {
 }
 
 export default function CertificatesBulkCreate({ templates, user }: Props) {
+    console.log('BulkCreate component loaded', { templates, user });
+
     const { data, setData, post, processing, errors } = useForm({
         templateSertifId: '',
         excel_file: null as File | null,
     });
 
+    console.log('Form state:', { data, errors, processing });
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        post(routes.certificates.bulk.store());
+        console.log('Form submit attempted', data);
+        
+        // Inertia post with file upload
+        post(routes.certificates.generateFromExcel(), {
+            forceFormData: true,
+            onStart: () => {
+                console.log('Form submission started');
+            },
+            onSuccess: (page) => {
+                console.log('Form submission successful', page);
+            },
+            onError: (errors) => {
+                console.log('Form submission errors', errors);
+            },
+            onFinish: () => {
+                console.log('Form submission finished');
+            }
+        });
     };
 
     const downloadTemplate = () => {
@@ -81,7 +102,8 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
                                 Form Bulk Generation
                             </CardTitle>
                             <CardDescription>
-                                Upload file Excel untuk generate sertifikat
+                                Upload file Excel (.xlsx/.xls) untuk generate
+                                sertifikat secara bulk
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -106,14 +128,29 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
                                             <SelectValue placeholder="Pilih template sertifikat" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {templates.map((template) => (
-                                                <SelectItem
-                                                    key={template.id}
-                                                    value={template.id}
-                                                >
-                                                    {template.title}
-                                                </SelectItem>
-                                            ))}
+                                            {templates.length === 0 ? (
+                                                <div className="p-4 text-center text-gray-500">
+                                                    <p>
+                                                        Tidak ada template yang
+                                                        tersedia.
+                                                    </p>
+                                                    <p className="text-sm">
+                                                        Template harus disetujui
+                                                        dan ditandatangani
+                                                        pimpinan terlebih
+                                                        dahulu.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                templates.map((template) => (
+                                                    <SelectItem
+                                                        key={template.id}
+                                                        value={template.id}
+                                                    >
+                                                        {template.title}
+                                                    </SelectItem>
+                                                ))
+                                            )}
                                         </SelectContent>
                                     </Select>
                                     {errors.templateSertifId && (
@@ -123,9 +160,37 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
                                     )}
                                 </div>
 
+                                {/* Download Template Button */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Template Excel</Label>
+                                        {data.templateSertifId && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                    window.open(
+                                                        `/templates/${data.templateSertifId}/download-excel-template`,
+                                                        '_blank',
+                                                    );
+                                                }}
+                                                className="text-blue-600 hover:text-blue-700"
+                                            >
+                                                <Download className="mr-2 h-4 w-4" />
+                                                Download Template
+                                            </Button>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-gray-500">
+                                        Pilih template terlebih dahulu untuk
+                                        download template Excel
+                                    </p>
+                                </div>
+
                                 <div className="space-y-2">
                                     <Label htmlFor="excel_file">
-                                        File Excel
+                                        File Excel (.xlsx/.xls)
                                     </Label>
                                     <div className="flex w-full items-center justify-center">
                                         <label
@@ -141,14 +206,14 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
                                                     atau drag and drop
                                                 </p>
                                                 <p className="text-xs text-gray-500">
-                                                    CSV, XLSX, XLS (MAX. 10MB)
+                                                    XLSX, XLS (MAX. 10MB)
                                                 </p>
                                             </div>
                                             <input
                                                 id="excel_file"
                                                 type="file"
                                                 className="hidden"
-                                                accept=".csv,.xlsx,.xls"
+                                                accept=".xlsx,.xls"
                                                 onChange={(e) =>
                                                     setData(
                                                         'excel_file',
