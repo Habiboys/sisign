@@ -41,49 +41,34 @@ class SertifikatController extends Controller
             ->latest('created_at')
             ->paginate(10);
 
+        Log::info('Sertifikat index data', [
+            'total_count' => $sertifikats->total(),
+            'data_count' => $sertifikats->count(),
+            'first_item' => $sertifikats->first() ? [
+                'id' => $sertifikats->first()->id,
+                'nomor_sertif' => $sertifikats->first()->nomor_sertif,
+                'templateSertif' => $sertifikats->first()->templateSertif ? [
+                    'id' => $sertifikats->first()->templateSertif->id,
+                    'title' => $sertifikats->first()->templateSertif->title
+                ] : null,
+                'certificateRecipients' => $sertifikats->first()->certificateRecipients ? [
+                    'count' => $sertifikats->first()->certificateRecipients->count(),
+                    'first_recipient' => $sertifikats->first()->certificateRecipients->first() ? [
+                        'id' => $sertifikats->first()->certificateRecipients->first()->id,
+                        'user_name' => $sertifikats->first()->certificateRecipients->first()->user->name,
+                        'user_email' => $sertifikats->first()->certificateRecipients->first()->user->email
+                    ] : null
+                ] : null
+            ] : null
+        ]);
+
         return Inertia::render('Certificates/Index', [
             'sertifikats' => $sertifikats,
             'user' => Auth::user()
         ]);
     }
 
-    public function create()
-    {
-        $templates = TemplateSertif::whereHas('review', function ($query) {
-            $query->where('status', 'approved');
-        })->whereNotNull('signed_template_path')->get();
-
-        return Inertia::render('Certificates/Create', [
-            'templates' => $templates,
-            'user' => Auth::user()
-        ]);
-    }
-
-    public function store(Request $request)
-    {
-        $request->validate([
-            'templateSertifId' => 'required|exists:template_sertif,id',
-            'nomor_sertif' => 'required|string|max:100|unique:sertifikat,nomor_sertif',
-            'recipients' => 'required|array|min:1',
-            'recipients.*.userId' => 'required|exists:users,id',
-            'recipients.*.issuedAt' => 'required|date'
-        ]);
-
-        $sertifikat = Sertifikat::create([
-            'templateSertifId' => $request->templateSertifId,
-            'nomor_sertif' => $request->nomor_sertif
-        ]);
-
-        foreach ($request->recipients as $recipient) {
-            CertificateRecipient::create([
-                'sertifikatId' => $sertifikat->id,
-                'userId' => $recipient['userId'],
-                'issuedAt' => $recipient['issuedAt']
-            ]);
-        }
-
-        return redirect()->route('certificates.index')->with('success', 'Sertifikat berhasil dibuat');
-    }
+    // Method create dan store dihapus karena menggunakan bulk generation
 
     public function bulkCreate()
     {
@@ -388,13 +373,26 @@ class SertifikatController extends Controller
         Log::info('generateBulkFromExcel method called', [
             'user_id' => Auth::id(),
             'request_data' => $request->except(['excel_file']),
-            'has_file' => $request->hasFile('excel_file')
+            'has_file' => $request->hasFile('excel_file'),
+            'templateSertifId' => $request->templateSertifId,
+            'excel_file_name' => $request->file('excel_file') ? $request->file('excel_file')->getClientOriginalName() : 'no_file'
         ]);
 
-        $request->validate([
-            'templateSertifId' => 'required|exists:template_sertif,id',
-            'excel_file' => 'required|file|mimes:xlsx,xls|max:10240'
-        ]);
+        try {
+            $request->validate([
+                'templateSertifId' => 'required|exists:template_sertif,id',
+                'excel_file' => 'required|file|mimes:xlsx,xls|max:10240',
+                'passphrase' => 'required|string'
+            ]);
+
+            Log::info('Validation passed successfully');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Validation failed', [
+                'errors' => $e->errors(),
+                'request_data' => $request->except(['excel_file'])
+            ]);
+            throw $e;
+        }
 
         Log::info('Validation passed, processing file');
 
@@ -428,7 +426,8 @@ class SertifikatController extends Controller
 
             $result = $this->certificateService->generateBulkCertificatesFromExcel([
                 'templateSertifId' => $request->templateSertifId,
-                'excelData' => $excelData
+                'excelData' => $excelData,
+                'passphrase' => $request->passphrase
             ]);
 
             $message = "Berhasil generate {$result['success_count']} sertifikat";
@@ -436,8 +435,21 @@ class SertifikatController extends Controller
                 $message .= ". Error: " . implode(', ', $result['errors']);
             }
 
+            Log::info('Certificate generation completed successfully', [
+                'success_count' => $result['success_count'],
+                'error_count' => count($result['errors']),
+                'message' => $message
+            ]);
+
             return redirect()->route('certificates.index')->with('success', $message);
         } catch (\Exception $e) {
+            Log::error('Failed to generate certificates from Excel', [
+                'user_id' => Auth::id(),
+                'template_id' => $request->templateSertifId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return redirect()->route('certificates.bulk.create')
                 ->with('error', 'Gagal generate sertifikat: ' . $e->getMessage());
         }
@@ -496,5 +508,46 @@ class SertifikatController extends Controller
     {
         $sertifikat->delete();
         return redirect()->route('certificates.index')->with('success', 'Sertifikat berhasil dihapus');
+    }
+
+    public function verifyCertificate(Sertifikat $certificate)
+    {
+        try {
+            $certificate->load(['templateSertif', 'recipients.user']);
+
+            $verificationData = [
+                'certificate_id' => $certificate->id,
+                'certificate_number' => $certificate->nomor_sertif,
+                'template_title' => $certificate->templateSertif->title ?? 'Unknown Template',
+                'issued_at' => $certificate->created_at->format('d/m/Y H:i:s'),
+                'recipients' => $certificate->recipients->map(function ($recipient) {
+                    return [
+                        'name' => $recipient->user->name,
+                        'email' => $recipient->user->email,
+                        'issued_at' => $recipient->issuedAt ? $recipient->issuedAt->format('d/m/Y H:i:s') : null,
+                    ];
+                }),
+                'verification_status' => 'valid',
+                'verified_at' => now()->format('d/m/Y H:i:s'),
+                'verification_hash' => hash('sha256', $certificate->id . $certificate->nomor_sertif . $certificate->created_at->toISOString())
+            ];
+
+            return Inertia::render('Verification/Certificate', [
+                'certificate' => $verificationData,
+                'success' => true,
+                'message' => 'Sertifikat berhasil diverifikasi'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Certificate verification failed', [
+                'certificate_id' => $certificate->id,
+                'error' => $e->getMessage()
+            ]);
+
+            return Inertia::render('Verification/Certificate', [
+                'certificate' => null,
+                'success' => false,
+                'message' => 'Gagal memverifikasi sertifikat: ' . $e->getMessage()
+            ]);
+        }
     }
 }

@@ -13,6 +13,7 @@ Route::get('/', function () {
 // Public verification route
 Route::get('verify-document/{document}', [App\Http\Controllers\SignatureController::class, 'verifyDocument'])->name('documents.verify');
 Route::get('verify-template/{template}', [App\Http\Controllers\TemplateSertifController::class, 'verifyTemplate'])->name('templates.verify');
+Route::get('verify-certificate/{certificate}', [App\Http\Controllers\SertifikatController::class, 'verifyCertificate'])->name('certificates.verify');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('dashboard', [App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');

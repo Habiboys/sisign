@@ -10,6 +10,7 @@ use App\Services\EncryptionService;
 use App\Services\SignatureService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -63,7 +64,7 @@ class SignatureController extends Controller
         $user = Auth::user();
 
         // Only pimpinan can access signature page
-        if (!$user->isPimpinan()) {
+        if ($user->role !== 'pimpinan') {
             abort(403, 'Hanya pimpinan yang dapat mengakses halaman tanda tangan');
         }
 
@@ -86,7 +87,7 @@ class SignatureController extends Controller
         $user = Auth::user();
 
         // Only pimpinan can create signatures
-        if (!$user->isPimpinan()) {
+        if ($user->role !== 'pimpinan') {
             return response()->json([
                 'success' => false,
                 'message' => 'Hanya pimpinan yang dapat membuat tanda tangan',
@@ -168,7 +169,7 @@ class SignatureController extends Controller
         $user = Auth::user();
 
         // Only pimpinan can create signatures
-        if (!$user->isPimpinan()) {
+        if ($user->role !== 'pimpinan') {
             return redirect()->back()->withErrors(['error' => 'Hanya pimpinan yang dapat membuat tanda tangan']);
         }
 
@@ -209,16 +210,16 @@ class SignatureController extends Controller
 
             // Save signed PDF if provided
             if ($request->signedPdfBase64) {
-                \Log::info('Attempting to save signed PDF', [
+                Log::info('Attempting to save signed PDF', [
                     'document_id' => $document->id,
                     'data_length' => strlen($request->signedPdfBase64)
                 ]);
 
                 $this->signatureService->saveSignedPDF($document, $request->signedPdfBase64);
 
-                \Log::info('Signed PDF saved successfully');
+                Log::info('Signed PDF saved successfully');
             } else {
-                \Log::warning('No signed PDF data provided');
+                Log::warning('No signed PDF data provided');
             }
 
             return redirect()->route('documents.show', $document->id)->with('success', 'Tanda tangan berhasil ditambahkan (Fisik + Digital)');
@@ -233,12 +234,18 @@ class SignatureController extends Controller
     public function previewSignedPDF(Document $document)
     {
         try {
-            $signedPdfPath = $this->signatureService->applySignaturesToPDF($document);
+            // If document already has a signed file, use that instead of generating new one
+            if ($document->signed_file && Storage::disk('public')->exists($document->signed_file)) {
+                $signedFilePath = storage_path('app/public/' . $document->signed_file);
+                $file = file_get_contents($signedFilePath);
+            } else {
+                // Otherwise, generate signed PDF dynamically
+                $signedPdfPath = $this->signatureService->applySignaturesToPDF($document);
+                $file = file_get_contents($signedPdfPath);
 
-            $file = file_get_contents($signedPdfPath);
-
-            // Clean up temporary file
-            unlink($signedPdfPath);
+                // Clean up temporary file
+                unlink($signedPdfPath);
+            }
 
             return response($file, 200, [
                 'Content-Type' => 'application/pdf',
@@ -255,6 +262,14 @@ class SignatureController extends Controller
     public function generateSignedPDF(Document $document)
     {
         try {
+            // If document already has a signed file, use that instead of generating new one
+            if ($document->signed_file && Storage::disk('public')->exists($document->signed_file)) {
+                $signedFilePath = storage_path('app/public/' . $document->signed_file);
+
+                return Response::download($signedFilePath, 'signed_' . basename($document->files));
+            }
+
+            // Otherwise, generate signed PDF dynamically
             $signedPdfPath = $this->signatureService->applySignaturesToPDF($document);
 
             return Response::download($signedPdfPath, 'signed_' . basename($document->files))
@@ -386,7 +401,7 @@ class SignatureController extends Controller
         $user = Auth::user();
 
         // Only pimpinan can sign documents
-        if (!$user->isPimpinan()) {
+        if ($user->role !== 'pimpinan') {
             return false;
         }
 

@@ -17,16 +17,17 @@ class Sertifikat extends Model
     protected $fillable = [
         'templateSertifId',
         'nomor_sertif',
+        'file_path',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
-        'updatedAt' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     // Override timestamp column names
     const CREATED_AT = 'created_at';
-    const UPDATED_AT = 'updatedAt';
+    const UPDATED_AT = 'updated_at';
 
     public function templateSertif(): BelongsTo
     {

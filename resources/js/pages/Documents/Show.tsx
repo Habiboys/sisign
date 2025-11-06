@@ -242,7 +242,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                     <iframe
                                         src={
                                             isDocumentSigned()
-                                                ? `/storage/${document.signed_file}`
+                                                ? `/documents/${document.id}/signed-pdf/preview`
                                                 : `/documents/${document.id}/pdf`
                                         }
                                         className="h-full w-full rounded-lg"

@@ -28,7 +28,7 @@ import {
 import AppLayout from '@/layouts/app-layout';
 import { routes } from '@/utils/routes';
 import { Head, Link, router } from '@inertiajs/react';
-import { Award, Eye, Plus, Trash2, Users } from 'lucide-react';
+import { Award, Eye, Mail, Plus, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 
 interface User {
@@ -48,11 +48,12 @@ interface Sertifikat {
     id: string;
     nomor_sertif: string;
     created_at: string;
+    file_path?: string;
     templateSertif: {
         id: string;
         title: string;
-    };
-    certificateRecipients: CertificateRecipient[];
+    } | null;
+    certificateRecipients: CertificateRecipient[] | null;
 }
 
 interface Props {
@@ -66,6 +67,12 @@ interface Props {
 
 export default function CertificatesIndex({ sertifikats, user }: Props) {
     const [deletingId, setDeletingId] = useState<string | null>(null);
+
+    console.log('CertificatesIndex data:', { sertifikats, user });
+    console.log('First sertifikat:', sertifikats.data?.[0]);
+    console.log('First sertifikat templateSertif:', sertifikats.data?.[0]?.templateSertif);
+    console.log('First sertifikat certificateRecipients:', sertifikats.data?.[0]?.certificateRecipients);
+    console.log('All sertifikats data:', sertifikats.data);
 
     const handleDelete = (id: string) => {
         router.delete(routes.certificates.destroy(id), {
@@ -90,18 +97,25 @@ export default function CertificatesIndex({ sertifikats, user }: Props) {
                     {/* Hanya admin yang bisa membuat sertifikat */}
                     {user.role === 'admin' && (
                         <div className="flex space-x-2">
-                            <Link href={routes.certificates.create()}>
-                                <Button className="bg-green-600 hover:bg-green-700">
-                                    <Plus className="mr-2 h-4 w-4" />
-                                    Buat Sertifikat
-                                </Button>
-                            </Link>
                             <Link href={routes.certificates.bulk.create()}>
-                                <Button variant="outline">
+                                <Button className="bg-green-600 hover:bg-green-700">
                                     <Award className="mr-2 h-4 w-4" />
-                                    Bulk Generate
+                                    Bulk Generate Sertifikat
                                 </Button>
                             </Link>
+                            <Button 
+                                variant="outline"
+                                className="text-blue-600 hover:text-blue-700"
+                                onClick={() => {
+                                    const allSertifikatIds = sertifikats.data.map(s => s.id);
+                                    router.post(routes.certificates.sendEmails(), {
+                                        sertifikat_ids: allSertifikatIds
+                                    });
+                                }}
+                            >
+                                <Mail className="mr-2 h-4 w-4" />
+                                Kirim Semua Email
+                            </Button>
                         </div>
                     )}
                 </div>
@@ -134,7 +148,7 @@ export default function CertificatesIndex({ sertifikats, user }: Props) {
                                             {sertifikat.nomor_sertif}
                                         </TableCell>
                                         <TableCell>
-                                            {sertifikat.templateSertif.title}
+                                            {sertifikat.templateSertif?.title || 'Template tidak ditemukan'}
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center">
@@ -143,16 +157,14 @@ export default function CertificatesIndex({ sertifikats, user }: Props) {
                                                     {
                                                         sertifikat
                                                             .certificateRecipients
-                                                            .length
+                                                            ?.length || 0
                                                     }{' '}
                                                     penerima
                                                 </span>
                                             </div>
                                         </TableCell>
                                         <TableCell>
-                                            {new Date(
-                                                sertifikat.created_at,
-                                            ).toLocaleDateString('id-ID')}
+                                            {sertifikat.created_at ? new Date(sertifikat.created_at).toLocaleDateString('id-ID') : 'Tanggal tidak tersedia'}
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex space-x-2">
@@ -168,6 +180,22 @@ export default function CertificatesIndex({ sertifikats, user }: Props) {
                                                         <Eye className="h-4 w-4" />
                                                     </Button>
                                                 </Link>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="text-blue-600 hover:text-blue-700"
+                                                    onClick={() => {
+                                                        router.post(routes.certificates.sendEmails(), {
+                                                            sertifikat_ids: [sertifikat.id]
+                                                        }, {
+                                                            onSuccess: () => {
+                                                                // Toast success akan ditangani oleh backend
+                                                            }
+                                                        });
+                                                    }}
+                                                >
+                                                    <Mail className="h-4 w-4" />
+                                                </Button>
                                                 <AlertDialog>
                                                     <AlertDialogTrigger asChild>
                                                         <Button
@@ -227,7 +255,7 @@ export default function CertificatesIndex({ sertifikats, user }: Props) {
                             </TableBody>
                         </Table>
 
-                        {sertifikats.data.length === 0 && (
+                        {sertifikats.data?.length === 0 && (
                             <div className="py-8 text-center text-gray-500">
                                 Belum ada sertifikat
                             </div>
