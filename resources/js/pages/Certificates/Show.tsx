@@ -24,6 +24,7 @@ interface CertificateRecipient {
 interface Sertifikat {
     id: string;
     nomor_sertif: string;
+    email?: string;
     created_at: string;
     file_path?: string;
     templateSertif: {
@@ -46,9 +47,16 @@ interface Props {
 }
 
 export default function CertificatesShow({ sertifikat, user }: Props) {
+    // Debug logging
+    console.log('CertificatesShow - sertifikat data:', sertifikat);
+    console.log('CertificatesShow - file_path:', sertifikat.file_path);
+    console.log('CertificatesShow - templateSertif:', sertifikat.templateSertif);
+    console.log('CertificatesShow - created_at:', sertifikat.created_at);
+    console.log('CertificatesShow - email:', sertifikat.email);
+
     return (
         <AppLayout>
-            <Head title={`Sertifikat ${sertifikat.nomor_sertif}`} />
+            <Head title={`Sertifikat ${sertifikat.nomor_sertif || 'Detail'}`} />
             <div className="flex h-full flex-1 flex-col gap-6 overflow-x-auto rounded-xl p-6">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
@@ -105,32 +113,67 @@ export default function CertificatesShow({ sertifikat, user }: Props) {
                                 </div>
                                 <div>
                                     <label className="text-sm font-medium text-gray-500">
-                                        File Sertifikat
+                                        Email Penerima
                                     </label>
                                     <p className="text-lg font-semibold">
-                                        {sertifikat.file_path ? (
-                                            <Button variant="outline" size="sm" asChild>
-                                                <a href={`/storage/${sertifikat.file_path}`} target="_blank" rel="noopener noreferrer">
-                                                    <Download className="mr-2 h-4 w-4" />
-                                                    Download PDF
-                                                </a>
-                                            </Button>
+                                        {sertifikat.email ? (
+                                            <span className="flex items-center">
+                                                <Mail className="mr-2 h-4 w-4 text-gray-500" />
+                                                {sertifikat.email}
+                                            </span>
                                         ) : (
-                                            <span className="text-gray-500">File belum tersedia</span>
+                                            <span className="text-gray-400">-</span>
                                         )}
                                     </p>
                                 </div>
                                 <div>
                                     <label className="text-sm font-medium text-gray-500">
-                                        Jumlah Penerima
+                                        File Sertifikat
                                     </label>
-                                    <p className="text-lg font-semibold">
-                                        {sertifikat.certificateRecipients?.length || 0} penerima
-                                    </p>
+                                    <div className="text-lg font-semibold">
+                                        {sertifikat.file_path ? (
+                                            <div className="flex space-x-2">
+                                                <Button variant="outline" size="sm" asChild>
+                                                    <a href={routes.certificates.view(sertifikat.id)} target="_blank" rel="noopener noreferrer">
+                                                        <Download className="mr-2 h-4 w-4" />
+                                                        Preview PDF
+                                                    </a>
+                                                </Button>
+                                                <Button variant="outline" size="sm" asChild>
+                                                    <a href={routes.certificates.download(sertifikat.id)}>
+                                                        <Download className="mr-2 h-4 w-4" />
+                                                        Download PDF
+                                                    </a>
+                                                </Button>
+                                            </div>
+                                        ) : (
+                                            <span className="text-gray-500">File belum tersedia</span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </CardContent>
                     </Card>
+
+                    {sertifikat.file_path && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Preview Sertifikat</CardTitle>
+                                <CardDescription>
+                                    Preview PDF sertifikat hasil bulk generation
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="w-full border rounded-lg overflow-hidden" style={{ height: '800px' }}>
+                                    <iframe
+                                        src={routes.certificates.view(sertifikat.id)}
+                                        className="w-full h-full"
+                                        title="Preview Sertifikat PDF"
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {sertifikat.certificateRecipients && sertifikat.certificateRecipients.length > 0 && (
                         <Card>

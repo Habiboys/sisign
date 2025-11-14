@@ -167,6 +167,28 @@ class TemplateSertifController extends Controller
         ]);
     }
 
+    public function viewSignedPDF(TemplateSertif $template)
+    {
+        if (!$template->signed_template_path) {
+            abort(404, 'Template yang sudah ditandatangani tidak ditemukan');
+        }
+
+        $filePath = $template->signed_template_path;
+        $fullPath = storage_path('app/public/' . $filePath);
+
+        if (!file_exists($fullPath)) {
+            abort(404, 'File template tidak ditemukan');
+        }
+
+        $file = file_get_contents($fullPath);
+
+        return response($file, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . basename($filePath) . '"',
+            'Access-Control-Allow-Origin' => '*',
+        ]);
+    }
+
     public function verifyTemplate(TemplateSertif $template)
     {
         try {
@@ -267,5 +289,47 @@ class TemplateSertifController extends Controller
         $template->delete();
 
         return redirect()->route('templates.index')->with('success', 'Template berhasil dihapus');
+    }
+
+    public function mapVariables(TemplateSertif $template)
+    {
+        // Template harus sudah ditandatangani dan disetujui
+        if (!$template->signed_template_path) {
+            return redirect()->route('templates.show', $template->id)
+                ->with('error', 'Template harus ditandatangani terlebih dahulu sebelum dapat mapping variabel.');
+        }
+
+        if ($template->review->status !== 'approved') {
+            return redirect()->route('templates.show', $template->id)
+                ->with('error', 'Template harus disetujui terlebih dahulu.');
+        }
+
+        return Inertia::render('Templates/MapVariables', [
+            'template' => $template,
+            'user' => Auth::user()
+        ]);
+    }
+
+    public function saveVariablePositions(Request $request, TemplateSertif $template)
+    {
+        $request->validate([
+            'variable_positions' => 'required|array',
+            'variable_positions.*.name' => 'required|string|max:255',
+            'variable_positions.*.x' => 'required|numeric',
+            'variable_positions.*.y' => 'required|numeric',
+            'variable_positions.*.fontSize' => 'nullable|numeric|min:8|max:72',
+            'variable_positions.*.fontFamily' => 'nullable|string|max:50',
+            'variable_positions.*.alignment' => 'nullable|in:L,C,R',
+        ]);
+
+        $template->update([
+            'variable_positions' => $request->variable_positions
+        ]);
+
+        // Refresh template untuk memastikan data ter-update
+        $template->refresh();
+
+        // Return success response (Inertia akan handle ini sebagai success)
+        return back()->with('success', 'Posisi variabel berhasil disimpan.');
     }
 }

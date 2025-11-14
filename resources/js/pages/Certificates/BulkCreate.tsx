@@ -14,16 +14,28 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import AppLayout from '@/layouts/app-layout';
 import { routes } from '@/utils/routes';
-import { Head, useForm } from '@inertiajs/react';
-import { Award, Download, FileSpreadsheet, Upload } from 'lucide-react';
+import { Head, useForm, router } from '@inertiajs/react';
+import { Award, Download, FileSpreadsheet, Upload, AlertCircle, CheckCircle2, Settings } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+
+interface VariablePosition {
+    name: string;
+    x: number;
+    y: number;
+    fontSize?: number;
+    alignment?: 'L' | 'C' | 'R';
+}
 
 interface Template {
     id: string;
     title: string;
     description?: string;
+    signed_template_path?: string;
+    variable_positions?: VariablePosition[];
+    has_variables_mapped: boolean;
 }
 
 interface User {
@@ -39,7 +51,6 @@ interface Props {
 }
 
 export default function CertificatesBulkCreate({ templates, user }: Props) {
-    console.log('BulkCreate component loaded', { templates, user });
     const { success, error, info } = useToast();
 
     const { data, setData, post, processing, errors } = useForm({
@@ -48,54 +59,45 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
         passphrase: '',
     });
 
-    console.log('Form state:', { data, errors, processing });
-    console.log('Available templates:', templates);
-    console.log('Templates count:', templates.length);
+    const selectedTemplate = templates.find(t => t.id === data.templateSertifId);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        console.log('Form submit attempted', data);
         
         // Validasi form sebelum submit
         if (!data.templateSertifId) {
-            console.error('Template tidak dipilih');
             error('Silakan pilih template sertifikat terlebih dahulu');
+            return;
+        }
+
+        const template = templates.find(t => t.id === data.templateSertifId);
+        if (template && !template.has_variables_mapped) {
+            error('Template belum di-mapping variabelnya. Silakan mapping variabel terlebih dahulu.');
             return;
         }
         
         if (!data.excel_file) {
-            console.error('File Excel tidak dipilih');
             error('Silakan pilih file Excel terlebih dahulu');
             return;
         }
         
         if (!data.passphrase) {
-            console.error('Passphrase tidak diisi');
             error('Silakan masukkan passphrase untuk tanda tangan digital');
             return;
         }
         
-        console.log('Form validation passed, submitting...');
         info('Sedang memproses sertifikat...');
         
         // Inertia post with file upload
         post(routes.certificates.generateFromExcel(), {
             forceFormData: true,
-            onStart: () => {
-                console.log('Form submission started');
-            },
-            onSuccess: (page) => {
-                console.log('Form submission successful', page);
+            onSuccess: () => {
                 success('Sertifikat berhasil digenerate!');
             },
             onError: (errors) => {
-                console.error('Form submission errors', errors);
                 const errorMessage = Object.values(errors).flat().join(', ');
                 error('Terjadi kesalahan: ' + errorMessage);
             },
-            onFinish: () => {
-                console.log('Form submission finished');
-            }
         });
     };
 
@@ -166,12 +168,52 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
                                                         key={template.id}
                                                         value={template.id}
                                                     >
-                                                        {template.title}
+                                                        <div className="flex items-center justify-between w-full">
+                                                            <span>{template.title}</span>
+                                                            {template.has_variables_mapped ? (
+                                                                <Badge className="ml-2 bg-green-100 text-green-800 text-xs">
+                                                                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                                                                    Variabel sudah di-mapping
+                                                                </Badge>
+                                                            ) : (
+                                                                <Badge className="ml-2 bg-yellow-100 text-yellow-800 text-xs">
+                                                                    <AlertCircle className="h-3 w-3 mr-1" />
+                                                                    Belum di-mapping
+                                                                </Badge>
+                                                            )}
+                                                        </div>
                                                     </SelectItem>
                                                 ))
                                             )}
                                         </SelectContent>
                                     </Select>
+                                    {selectedTemplate && !selectedTemplate.has_variables_mapped && (
+                                        <div className="rounded-lg bg-yellow-50 border border-yellow-200 p-3 mt-2">
+                                            <div className="flex items-start">
+                                                <AlertCircle className="h-5 w-5 text-yellow-600 mr-2 mt-0.5" />
+                                                <div className="flex-1">
+                                                    <p className="text-sm font-medium text-yellow-800">
+                                                        Template belum di-mapping variabel
+                                                    </p>
+                                                    <p className="text-xs text-yellow-700 mt-1">
+                                                        Silakan mapping variabel terlebih dahulu sebelum melakukan bulk generate.
+                                                    </p>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="mt-2 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border-yellow-300"
+                                                        onClick={() => {
+                                                            router.visit(`/templates/${selectedTemplate.id}/map-variables`);
+                                                        }}
+                                                    >
+                                                        <Settings className="h-4 w-4 mr-2" />
+                                                        Mapping Variabel
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                     {errors.templateSertifId && (
                                         <p className="text-sm text-red-500">
                                             {errors.templateSertifId}
@@ -283,78 +325,92 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div className="rounded-lg bg-gray-50 p-4">
-                                <h4 className="mb-2 font-medium">
-                                    Format Excel yang diperlukan:
-                                </h4>
-                                <div className="space-y-1 text-sm text-gray-600">
-                                    <p>
-                                        <strong>Kolom A:</strong> Nomor
-                                        Sertifikat
-                                    </p>
-                                    <p>
-                                        <strong>Kolom B:</strong> Email Penerima
-                                    </p>
-                                    <p>
-                                        <strong>Kolom C:</strong> Tanggal Terbit
-                                        (YYYY-MM-DD)
-                                    </p>
-                                </div>
-                            </div>
+                            {selectedTemplate && selectedTemplate.has_variables_mapped ? (
+                                <>
+                                    <div className="rounded-lg bg-green-50 border border-green-200 p-4">
+                                        <div className="flex items-center mb-2">
+                                            <CheckCircle2 className="h-5 w-5 text-green-600 mr-2" />
+                                            <h4 className="font-medium text-green-800">
+                                                Variabel Template
+                                            </h4>
+                                        </div>
+                                        <div className="space-y-1 text-sm text-green-700">
+                                            {selectedTemplate.variable_positions?.map((variable, index) => (
+                                                <div key={index} className="flex items-center">
+                                                    <span className="font-medium">Kolom {String.fromCharCode(65 + index)}:</span>
+                                                    <span className="ml-2 capitalize">
+                                                        {variable.name.replace(/_/g, ' ')}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
 
-                            <div className="rounded-lg bg-blue-50 p-4">
-                                <h4 className="mb-2 font-medium text-blue-800">
-                                    Contoh Data:
-                                </h4>
-                                <div className="space-y-1 text-sm text-blue-700">
-                                    <p>
-                                        SERT-001 | user@example.com | 2025-01-01
-                                    </p>
-                                    <p>
-                                        SERT-002 | admin@example.com |
-                                        2025-01-02
-                                    </p>
-                                    <p>
-                                        SERT-003 | pimpinan@example.com |
-                                        2025-01-03
-                                    </p>
-                                </div>
-                            </div>
+                                    <div className="rounded-lg bg-blue-50 p-4">
+                                        <h4 className="mb-2 font-medium text-blue-800">
+                                            Format Excel:
+                                        </h4>
+                                        <div className="space-y-1 text-sm text-blue-700">
+                                            <p className="font-semibold">Baris pertama: Header (akan diabaikan)</p>
+                                            <p>Baris berikutnya: Data sesuai urutan variabel di atas</p>
+                                        </div>
+                                    </div>
 
-                            {data.templateSertifId ? (
-                                <Button
-                                    onClick={() => {
-                                        window.open(
-                                            `/templates/${data.templateSertifId}/download-excel-template`,
-                                            '_blank',
-                                        );
-                                    }}
-                                    variant="outline"
-                                    className="w-full"
-                                >
-                                    <Download className="mr-2 h-4 w-4" />
-                                    Download Template Excel
-                                </Button>
+                                    <Button
+                                        onClick={() => {
+                                            window.open(
+                                                `/templates/${data.templateSertifId}/download-excel-template`,
+                                                '_blank',
+                                            );
+                                        }}
+                                        variant="outline"
+                                        className="w-full"
+                                    >
+                                        <Download className="mr-2 h-4 w-4" />
+                                        Download Template Excel
+                                    </Button>
+                                </>
+                            ) : selectedTemplate && !selectedTemplate.has_variables_mapped ? (
+                                <div className="rounded-lg bg-yellow-50 border border-yellow-200 p-4">
+                                    <div className="flex items-start">
+                                        <AlertCircle className="h-5 w-5 text-yellow-600 mr-2 mt-0.5" />
+                                        <div>
+                                            <h4 className="font-medium text-yellow-800 mb-2">
+                                                Template belum di-mapping variabel
+                                            </h4>
+                                            <p className="text-sm text-yellow-700 mb-3">
+                                                Silakan mapping variabel terlebih dahulu untuk mengetahui format Excel yang diperlukan.
+                                            </p>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="bg-yellow-100 hover:bg-yellow-200 text-yellow-800 border-yellow-300"
+                                                onClick={() => {
+                                                    router.visit(`/templates/${selectedTemplate.id}/map-variables`);
+                                                }}
+                                            >
+                                                <Settings className="h-4 w-4 mr-2" />
+                                                Mapping Variabel
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
                             ) : (
                                 <div className="rounded-lg bg-gray-100 p-4 text-center text-gray-500">
-                                    Pilih template terlebih dahulu untuk download template Excel
+                                    <p>Pilih template terlebih dahulu untuk melihat format Excel</p>
                                 </div>
                             )}
 
-                            <div className="rounded-lg bg-yellow-50 p-4">
-                                <h4 className="mb-2 font-medium text-yellow-800">
+                            <div className="rounded-lg bg-gray-50 p-4">
+                                <h4 className="mb-2 font-medium">
                                     Catatan Penting:
                                 </h4>
-                                <ul className="space-y-1 text-sm text-yellow-700">
-                                    <li>
-                                        • Email penerima harus sudah terdaftar
-                                        di sistem
-                                    </li>
+                                <ul className="space-y-1 text-sm text-gray-600">
                                     <li>• Nomor sertifikat harus unik</li>
-                                    <li>• Format tanggal: YYYY-MM-DD</li>
-                                    <li>
-                                        • Baris pertama akan diabaikan (header)
-                                    </li>
+                                    <li>• Format tanggal: YYYY-MM-DD (jika ada kolom tanggal)</li>
+                                    <li>• Baris pertama akan diabaikan (header)</li>
+                                    <li>• Urutan kolom harus sesuai dengan variabel yang sudah di-mapping</li>
                                 </ul>
                             </div>
                         </CardContent>

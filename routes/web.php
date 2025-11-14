@@ -29,6 +29,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('templates/{template}/download-signed', [App\Http\Controllers\TemplateSertifController::class, 'downloadSigned'])->name('templates.download-signed');
     Route::delete('templates/{template}/remove-signature', [App\Http\Controllers\TemplateSertifController::class, 'removeSignature'])->name('templates.remove-signature');
     Route::post('templates/{template}/review', [App\Http\Controllers\TemplateSertifController::class, 'review'])->name('templates.review');
+    Route::get('templates/{template}/map-variables', [App\Http\Controllers\TemplateSertifController::class, 'mapVariables'])->name('templates.map-variables');
+    Route::post('templates/{template}/save-variable-positions', [App\Http\Controllers\TemplateSertifController::class, 'saveVariablePositions'])->name('templates.save-variable-positions');
 
     // Template Guide
     Route::get('template-guide', [App\Http\Controllers\TemplateGuideController::class, 'index'])->name('template-guide.index');
@@ -47,6 +49,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('certificates/generate-bulk', [App\Http\Controllers\SertifikatController::class, 'generateBulkCertificates'])->name('certificates.generate-bulk');
     Route::post('certificates/generate-from-excel', [App\Http\Controllers\SertifikatController::class, 'generateBulkFromExcel'])->name('certificates.generate-from-excel');
     Route::get('certificates/{certificate}/download', [App\Http\Controllers\SertifikatController::class, 'downloadCertificate'])->name('certificates.download');
+    Route::get('certificates/{certificate}/view', [App\Http\Controllers\SertifikatController::class, 'viewCertificate'])->name('certificates.view');
     Route::post('certificates/download-bulk', [App\Http\Controllers\SertifikatController::class, 'downloadBulkCertificates'])->name('certificates.download-bulk');
 
     // Excel template and email
@@ -69,6 +72,7 @@ Route::middleware(['auth'])->group(function () {
     // File access routes
     Route::get('documents/{document}/pdf', [App\Http\Controllers\DocumentController::class, 'viewPDF'])->name('documents.pdf');
     Route::get('documents/{document}/signed-pdf/preview', [App\Http\Controllers\SignatureController::class, 'previewSignedPDF'])->name('documents.signed-pdf.preview');
+    Route::get('templates/{template}/signed-pdf', [App\Http\Controllers\TemplateSertifController::class, 'viewSignedPDF'])->name('templates.signed-pdf');
 
     // Encryption Keys Management
     Route::prefix('encryption')->name('encryption.')->group(function () {

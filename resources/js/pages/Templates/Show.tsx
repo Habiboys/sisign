@@ -238,19 +238,33 @@ export default function TemplatesShow({ template, user }: Props) {
                                 </Button>
 
                                 {template.signed_template_path && (
-                                    <Button
-                                        variant="outline"
-                                        className="w-full"
-                                        onClick={() =>
-                                            window.open(
-                                                `/templates/${template.id}/download-signed`,
-                                                '_blank',
-                                            )
-                                        }
-                                    >
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        Lihat Template Bertanda Tangan
-                                    </Button>
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            className="w-full"
+                                            onClick={() =>
+                                                window.open(
+                                                    `/templates/${template.id}/download-signed`,
+                                                    '_blank',
+                                                )
+                                            }
+                                        >
+                                            <Eye className="mr-2 h-4 w-4" />
+                                            Lihat Template Bertanda Tangan
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                                            onClick={() =>
+                                                router.visit(
+                                                    `/templates/${template.id}/map-variables`,
+                                                )
+                                            }
+                                        >
+                                            <Plus className="mr-2 h-4 w-4" />
+                                            Mapping Variabel untuk Bulk
+                                        </Button>
+                                    </>
                                 )}
 
                                 {canSign && (

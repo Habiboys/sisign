@@ -529,30 +529,141 @@ class SignatureService
             throw new \Exception('Failed to decode base64 PDF data for template');
         }
 
-        // Generate filename (consistent with document approach)
+        // Simpan PDF sementara untuk di-convert
+        $tempPath = storage_path('app/temp/template_' . uniqid() . '.pdf');
+        $tempDir = dirname($tempPath);
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+        file_put_contents($tempPath, $pdfData);
+
+        // Generate filename
         $originalFilename = str_replace(' ', '_', $template->files);
         $filename = 'signed_' . time() . '_' . $originalFilename;
-
-        // Save to storage (same approach as document)
         $path = 'templates/signed/' . $filename;
-        $saved = Storage::disk('public')->put($path, $pdfData);
+        $outputPath = storage_path('app/public/' . $path);
 
-        if (!$saved) {
-            Log::error('Failed to save template PDF to storage');
-            throw new \Exception('Failed to save template PDF to storage');
+        // Pastikan directory exists
+        $outputDir = dirname($outputPath);
+        if (!is_dir($outputDir)) {
+            mkdir($outputDir, 0755, true);
         }
 
-        // Update template with signed file path (relative path like document)
+        // Coba convert dengan FPDI dulu (jika PDF tidak pakai Object Streams)
+        $converted = false;
+        try {
+            $pdf = new Fpdi();
+            $pageCount = $pdf->setSourceFile($tempPath);
+
+            // Copy semua halaman dengan FPDI (akan otomatis convert ke format kompatibel)
+            for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+                $templateId = $pdf->importPage($pageNo);
+                $size = $pdf->getTemplateSize($templateId);
+
+                $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+                $pdf->useTemplate($templateId);
+            }
+
+            // Output ke file (FPDI akan save dalam format PDF 1.4 yang kompatibel)
+            $pdf->Output($outputPath, 'F');
+            $converted = true;
+
+            Log::info('PDF template converted to FPDI-compatible format', [
+                'original_size' => strlen($pdfData),
+                'converted_size' => file_exists($outputPath) ? filesize($outputPath) : 0
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('FPDI failed to convert PDF (may use Object Streams), trying Ghostscript', [
+                'error' => $e->getMessage()
+            ]);
+
+            // Jika FPDI gagal, coba convert dengan Ghostscript (jika tersedia)
+            $gsCommand = $this->findGhostscriptCommand();
+            if ($gsCommand) {
+                try {
+                    // Convert PDF menggunakan Ghostscript ke PDF 1.4 (tanpa object streams)
+                    $command = escapeshellarg($gsCommand) . ' -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/prepress -dUseObjectStreams=false -dUseFlateCompression=true -dCompressFonts=false -dSubsetFonts=false -sOutputFile=' . escapeshellarg($outputPath) . ' ' . escapeshellarg($tempPath) . ' 2>&1';
+
+                    exec($command, $output, $returnCode);
+
+                    if ($returnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0) {
+                        $converted = true;
+                        Log::info('PDF template converted with Ghostscript', [
+                            'original_size' => strlen($pdfData),
+                            'converted_size' => filesize($outputPath)
+                        ]);
+                    }
+                } catch (\Exception $gsError) {
+                    Log::error('Ghostscript conversion failed', ['error' => $gsError->getMessage()]);
+                }
+            }
+        }
+
+        // Jika convert gagal, throw error yang jelas (jangan save PDF yang tidak kompatibel)
+        if (!$converted) {
+            $gsCommand = $this->findGhostscriptCommand();
+            $errorMessage = "PDF template menggunakan kompresi Object Streams yang tidak didukung FPDI.\n\n";
+
+            if (!$gsCommand) {
+                $errorMessage .= "SOLUSI:\n";
+                $errorMessage .= "1. Install Ghostscript:\n";
+                $errorMessage .= "   - Windows: Download dari https://www.ghostscript.com/download/gsdnld.html\n";
+                $errorMessage .= "   - Linux: sudo apt-get install ghostscript\n";
+                $errorMessage .= "   - Mac: brew install ghostscript\n\n";
+                $errorMessage .= "2. Setelah install, restart server dan coba tanda tangani template lagi.\n\n";
+                $errorMessage .= "ATAU convert PDF template secara manual:\n";
+                $errorMessage .= "- Buka PDF di Adobe Acrobat atau tool PDF lainnya\n";
+                $errorMessage .= "- Save As / Export ke format PDF 1.4 (tanpa object streams)\n";
+                $errorMessage .= "- Upload ulang template yang sudah di-convert";
+            } else {
+                $errorMessage .= "Ghostscript tersedia tapi convert gagal. Silakan convert PDF template secara manual.";
+            }
+
+            Log::error('Failed to convert PDF template', [
+                'template_id' => $template->id,
+                'ghostscript_available' => $gsCommand ? 'YES' : 'NO',
+                'error_message' => $errorMessage
+            ]);
+
+            throw new \Exception($errorMessage);
+        }
+
+        // Update template with signed file path
         $template->update(['signed_template_path' => $path]);
 
         // Verify the saved file
-        $savedFileSize = Storage::disk('public')->size($path);
+        $savedFileSize = file_exists($outputPath) ? filesize($outputPath) : 0;
         Log::info('Signed template PDF saved successfully', [
             'template_id' => $template->id,
             'path' => $path,
             'original_size' => strlen($pdfData),
             'saved_size' => $savedFileSize,
-            'size_match' => strlen($pdfData) === $savedFileSize
+            'converted' => $converted
         ]);
+
+        // Clean up temp file
+        if (file_exists($tempPath)) {
+            unlink($tempPath);
+        }
+    }
+
+    /**
+     * Find Ghostscript command
+     */
+    private function findGhostscriptCommand(): ?string
+    {
+        $commands = ['gs', 'gswin64c', 'gswin32c'];
+
+        foreach ($commands as $cmd) {
+            $output = [];
+            $returnCode = 0;
+            exec(escapeshellarg($cmd) . ' --version 2>&1', $output, $returnCode);
+
+            if ($returnCode === 0) {
+                return $cmd;
+            }
+        }
+
+        return null;
     }
 }

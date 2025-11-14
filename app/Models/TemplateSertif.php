@@ -20,11 +20,13 @@ class TemplateSertif extends Model
         'description',
         'reviewId',
         'signed_template_path',
+        'variable_positions',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
         'updatedAt' => 'datetime',
+        'variable_positions' => 'array',
     ];
 
     // Override timestamp column names
