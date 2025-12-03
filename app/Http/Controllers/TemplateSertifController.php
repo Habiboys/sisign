@@ -47,8 +47,11 @@ class TemplateSertifController extends Controller
                 ->with('error', 'Pimpinan hanya dapat menandatangani dokumen, tidak dapat membuat template.');
         }
 
+        $users = \App\Models\User::where('role', 'pimpinan')->get();
+
         return Inertia::render('Templates/Create', [
-            'user' => $user
+            'user' => $user,
+            'users' => $users
         ]);
     }
 
@@ -65,7 +68,9 @@ class TemplateSertifController extends Controller
         $request->validate([
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'file' => 'required|file|mimes:pdf,doc,docx|max:10240'
+            'file' => 'required|file|mimes:pdf,doc,docx|max:10240',
+            'signers' => 'required|array|min:1',
+            'signers.*' => 'exists:users,id'
         ]);
 
         $file = $request->file('file');
@@ -82,12 +87,22 @@ class TemplateSertifController extends Controller
             'komentar' => $user->role === 'admin' ? 'Template dibuat oleh admin, otomatis disetujui.' : null
         ]);
 
-        TemplateSertif::create([
+        $template = TemplateSertif::create([
             'title' => $request->title,
             'description' => $request->description,
             'files' => $filename,
             'reviewId' => $review->id
         ]);
+
+        // Create signers
+        foreach ($request->signers as $index => $signerId) {
+            \App\Models\TemplateSigner::create([
+                'template_id' => $template->id,
+                'user_id' => $signerId,
+                'sign_order' => $index + 1,
+                'is_signed' => false
+            ]);
+        }
 
         $successMessage = $user->role === 'admin' ?
             'Template berhasil dibuat dan otomatis disetujui.' :
@@ -98,7 +113,7 @@ class TemplateSertifController extends Controller
 
     public function show(TemplateSertif $template)
     {
-        $template->load(['review.disetujuiBy', 'sertifikats.certificateRecipients.user']);
+        $template->load(['review.disetujuiBy', 'sertifikats.certificateRecipients.user', 'signers.user']);
 
         return Inertia::render('Templates/Show', [
             'template' => $template,
@@ -119,6 +134,27 @@ class TemplateSertifController extends Controller
         if ($template->review->status !== 'approved') {
             return redirect()->route('templates.show', $template->id)
                 ->with('error', 'Template harus disetujui terlebih dahulu sebelum dapat ditandatangani.');
+        }
+
+        // Check if user is a designated signer
+        $isSigner = $template->signers()
+            ->where('user_id', $user->id)
+            ->exists();
+
+        if (!$isSigner) {
+            return redirect()->route('templates.show', $template->id)
+                ->with('error', 'Anda tidak terdaftar sebagai penanda tangan untuk template ini.');
+        }
+
+        // Check if user already signed
+        $hasSigned = $template->signers()
+            ->where('user_id', $user->id)
+            ->where('is_signed', true)
+            ->exists();
+
+        if ($hasSigned) {
+             return redirect()->route('templates.show', $template->id)
+                ->with('error', 'Anda sudah menandatangani template ini.');
         }
 
         $template->load(['review.disetujuiBy']);
@@ -163,7 +199,8 @@ class TemplateSertifController extends Controller
 
         return response($file, 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="' . $filename . '"'
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+            'Accept-Ranges' => 'none', // Try to discourage IDM
         ]);
     }
 
@@ -186,13 +223,24 @@ class TemplateSertifController extends Controller
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="' . basename($filePath) . '"',
             'Access-Control-Allow-Origin' => '*',
+            'Accept-Ranges' => 'none', // Try to discourage IDM
         ]);
     }
 
     public function verifyTemplate(TemplateSertif $template)
     {
         try {
-            $template->load(['review.disetujuiBy']);
+            $template->load(['review.disetujuiBy', 'signers.user']);
+
+            // Get signers info
+            $signers = $template->signers->map(function ($signer) {
+                return [
+                    'name' => $signer->user->name,
+                    'role' => $signer->user->role, // Assuming role is relevant
+                    'is_signed' => $signer->is_signed,
+                    'order' => $signer->sign_order
+                ];
+            });
 
             // Get template info
             $templateInfo = [
@@ -204,6 +252,7 @@ class TemplateSertifController extends Controller
                 'is_signed' => !empty($template->signed_template_path),
                 'signed_at' => $template->signed_template_path ?
                     filemtime(storage_path('app/public/' . $template->signed_template_path)) : null,
+                'signers' => $signers
             ];
 
             // Get review info if available
@@ -245,16 +294,23 @@ class TemplateSertifController extends Controller
         }
 
         try {
-            // Delete the signed template file if it exists
-            if ($template->signed_template_path) {
-                $fullPath = storage_path('app/public/' . $template->signed_template_path);
-                if (file_exists($fullPath)) {
-                    unlink($fullPath);
-                }
+            // Find the signer record for this user
+            $signer = $template->signers()->where('user_id', $user->id)->first();
+            
+            if (!$signer || !$signer->is_signed) {
+                return redirect()->back()->with('error', 'Anda belum menandatangani template ini.');
             }
 
-            // Clear the signed template path from database
-            $template->update(['signed_template_path' => null]);
+            // Remove physical signature record
+            Signature::where('templateSertifId', $template->id)
+                ->where('userId', $user->id)
+                ->delete();
+
+            // Update signer status
+            $signer->update(['is_signed' => false]);
+
+            // Reconstruct the signed PDF from original + remaining signatures
+            $this->signatureService->reconstructSignedTemplate($template);
 
             return redirect()->route('templates.show', $template->id)
                 ->with('success', 'Tanda tangan template berhasil dihapus.');
@@ -317,6 +373,8 @@ class TemplateSertifController extends Controller
             'variable_positions.*.name' => 'required|string|max:255',
             'variable_positions.*.x' => 'required|numeric',
             'variable_positions.*.y' => 'required|numeric',
+            'variable_positions.*.x_pct' => 'nullable|numeric|between:0,1',
+            'variable_positions.*.y_pct' => 'nullable|numeric|between:0,1',
             'variable_positions.*.fontSize' => 'nullable|numeric|min:8|max:72',
             'variable_positions.*.fontFamily' => 'nullable|string|max:50',
             'variable_positions.*.alignment' => 'nullable|in:L,C,R',

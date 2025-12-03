@@ -42,4 +42,22 @@ class TemplateSertif extends Model
     {
         return $this->hasMany(Sertifikat::class, 'templateSertifId');
     }
+
+    public function signers(): HasMany
+    {
+        return $this->hasMany(TemplateSigner::class, 'template_id');
+    }
+
+    public function isCompleted(): bool
+    {
+        // Check if all signers have signed
+        $totalSigners = $this->signers()->count();
+        if ($totalSigners === 0) {
+            // Fallback for legacy templates or if no signers defined yet
+            return false;
+        }
+        
+        $signedCount = $this->signers()->where('is_signed', true)->count();
+        return $totalSigners === $signedCount;
+    }
 }

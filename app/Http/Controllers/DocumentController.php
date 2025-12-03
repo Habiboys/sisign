@@ -20,7 +20,10 @@ class DocumentController extends Controller
         if ($user->isAdmin()) {
             $documents = $query->latest('created_at')->paginate(10);
         } elseif ($user->isPimpinan()) {
-            $documents = $query->where('to', $user->id)->latest('created_at')->paginate(10);
+            // Show documents where user is a signer
+            $documents = $query->whereHas('signers', function ($q) use ($user) {
+                $q->where('user_id', $user->id);
+            })->latest('created_at')->paginate(10);
         } else {
             $documents = $query->where('userId', $user->id)->latest('created_at')->paginate(10);
         }
@@ -96,7 +99,8 @@ class DocumentController extends Controller
         $request->validate([
             'title' => 'required|string|max:255',
             'file' => 'required|file|mimes:pdf,doc,docx|max:10240',
-            'to' => 'required|exists:users,id',
+            'to' => 'required|array|min:1',
+            'to.*' => 'exists:users,id',
             'number' => 'required|string|max:100'
         ]);
 
@@ -114,14 +118,24 @@ class DocumentController extends Controller
             'komentar' => $user->isAdmin() ? 'Dokumen dibuat oleh admin, otomatis disetujui.' : null
         ]);
 
-        Document::create([
+        $document = Document::create([
             'userId' => Auth::id(),
             'title' => $request->title,
             'files' => $filename,
             'number' => $request->number,
-            'to' => $request->to,
+            'to' => $request->to[0], // Keep first signer as primary 'to' for backward compatibility
             'reviewId' => $review->id,
         ]);
+
+        // Create signers
+        foreach ($request->to as $index => $signerId) {
+            \App\Models\DocumentSigner::create([
+                'document_id' => $document->id,
+                'user_id' => $signerId,
+                'sign_order' => $index + 1,
+                'is_signed' => false
+            ]);
+        }
 
         $successMessage = $user->isAdmin() ?
             'Dokumen berhasil dibuat dan otomatis disetujui.' :
@@ -132,7 +146,7 @@ class DocumentController extends Controller
 
     public function show(Document $document)
     {
-        $document->load(['user', 'toUser', 'review', 'signatures.user']);
+        $document->load(['user', 'toUser', 'review', 'signatures.user', 'signers.user']);
 
         return Inertia::render('Documents/Show', [
             'document' => $document,
@@ -175,10 +189,14 @@ class DocumentController extends Controller
             abort(404, 'File not found');
         }
 
-        return Storage::disk('public')->response($filePath, null, [
-            'Content-Type' => 'application/pdf',
+        $file = Storage::disk('public')->get($filePath);
+        $mimeType = Storage::disk('public')->mimeType($filePath);
+
+        return response($file, 200, [
+            'Content-Type' => $mimeType,
             'Content-Disposition' => 'inline',
             'Access-Control-Allow-Origin' => '*',
+            'Accept-Ranges' => 'none', // Try to discourage IDM
         ]);
     }
 }

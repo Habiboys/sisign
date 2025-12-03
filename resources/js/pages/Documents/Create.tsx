@@ -18,7 +18,7 @@ import {
 import AppLayout from '@/layouts/app-layout';
 import { routes } from '@/utils/routes';
 import { Head, useForm } from '@inertiajs/react';
-import { FileText, Upload } from 'lucide-react';
+import { FileText, Plus, Upload } from 'lucide-react';
 
 interface User {
     id: string;
@@ -36,7 +36,7 @@ export default function DocumentsCreate({ users, user }: Props) {
     const { data, setData, post, processing, errors } = useForm({
         title: '',
         file: null as File | null,
-        to: '',
+        to: [''], // Initialize with one empty signer
         number: '',
     });
 
@@ -114,36 +114,59 @@ export default function DocumentsCreate({ users, user }: Props) {
                                 </div>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label htmlFor="to">Ditujukan Kepada</Label>
-                                <Select
-                                    value={data.to}
-                                    onValueChange={(value) =>
-                                        setData('to', value)
-                                    }
-                                >
-                                    <SelectTrigger
-                                        className={
-                                            errors.to ? 'border-red-500' : ''
-                                        }
-                                    >
-                                        <SelectValue placeholder="Pilih penerima dokumen" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {users.map((user) => (
-                                            <SelectItem
-                                                key={user.id}
-                                                value={user.id}
+                            <div className="space-y-4">
+                                <Label>Ditujukan Kepada (Pimpinan)</Label>
+                                {Array.isArray(data.to) && data.to.map((signerId, index) => (
+                                    <div key={index} className="flex gap-2">
+                                        <div className="flex-1">
+                                            <Select
+                                                value={signerId}
+                                                onValueChange={(value) => {
+                                                    const newTo = [...(data.to as string[])];
+                                                    newTo[index] = value;
+                                                    setData('to', newTo);
+                                                }}
                                             >
-                                                {user.name} ({user.email})
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                                <SelectTrigger className={errors.to ? 'border-red-500' : ''}>
+                                                    <SelectValue placeholder={`Pilih Pimpinan ke-${index + 1}`} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {users.map((user) => (
+                                                        <SelectItem key={user.id} value={user.id}>
+                                                            {user.name} ({user.email})
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        {index > 0 && (
+                                            <Button
+                                                type="button"
+                                                variant="destructive"
+                                                onClick={() => {
+                                                    const newTo = (data.to as string[]).filter((_, i) => i !== index);
+                                                    setData('to', newTo);
+                                                }}
+                                            >
+                                                Hapus
+                                            </Button>
+                                        )}
+                                    </div>
+                                ))}
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        const currentTo = Array.isArray(data.to) ? data.to : [];
+                                        setData('to', [...currentTo, '']);
+                                    }}
+                                    className="w-full"
+                                >
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Tambah Pimpinan
+                                </Button>
                                 {errors.to && (
-                                    <p className="text-sm text-red-500">
-                                        {errors.to}
-                                    </p>
+                                    <p className="text-sm text-red-500">{errors.to}</p>
                                 )}
                             </div>
 

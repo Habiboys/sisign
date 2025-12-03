@@ -28,23 +28,41 @@ class Document extends Model
 
 
 
-    public function user(): BelongsTo
+    public function user()
     {
         return $this->belongsTo(User::class, 'userId');
     }
 
-    public function toUser(): BelongsTo
+    public function toUser()
     {
         return $this->belongsTo(User::class, 'to');
     }
 
-    public function review(): BelongsTo
+    public function review()
     {
         return $this->belongsTo(Review::class, 'reviewId');
     }
 
-    public function signatures(): HasMany
+    public function signatures()
     {
         return $this->hasMany(Signature::class, 'documentId');
+    }
+
+    public function signers()
+    {
+        return $this->hasMany(DocumentSigner::class, 'document_id');
+    }
+
+    public function isCompleted(): bool
+    {
+        // Check if all signers have signed
+        $totalSigners = $this->signers()->count();
+        if ($totalSigners === 0) {
+            // Fallback for legacy documents or if no signers defined yet
+            return false;
+        }
+        
+        $signedCount = $this->signers()->where('is_signed', true)->count();
+        return $totalSigners === $signedCount;
     }
 }

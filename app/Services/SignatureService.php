@@ -172,8 +172,8 @@ class SignatureService
                 }
             }
 
-            // Add QR code verification only on the last page if there are signatures
-            if ($pageNo === $pageCount && $signatures->count() > 0) {
+            // Add QR code verification only on the last page if the document is fully signed
+            if ($pageNo === $pageCount && $document->isCompleted()) {
                 $this->addVerificationQRCode($pdf, $document, $size);
             }
         }
@@ -518,133 +518,43 @@ class SignatureService
         // Decode base64 PDF data
         $pdfData = base64_decode($signedPdfBase64);
 
-        Log::info('Template PDF decode result:', [
-            'original_length' => strlen($signedPdfBase64),
-            'decoded_length' => strlen($pdfData),
-            'is_valid' => $pdfData !== false
-        ]);
-
         if (!$pdfData) {
             Log::error('Failed to decode base64 PDF data for template');
             throw new \Exception('Failed to decode base64 PDF data for template');
         }
 
-        // Simpan PDF sementara untuk di-convert
-        $tempPath = storage_path('app/temp/template_' . uniqid() . '.pdf');
-        $tempDir = dirname($tempPath);
-        if (!is_dir($tempDir)) {
-            mkdir($tempDir, 0755, true);
-        }
-        file_put_contents($tempPath, $pdfData);
-
         // Generate filename
         $originalFilename = str_replace(' ', '_', $template->files);
-        $filename = 'signed_' . time() . '_' . $originalFilename;
+        // Use consistent filename for signed template to support overwriting/appending
+        $filename = 'signed_' . $template->id . '_' . $originalFilename;
         $path = 'templates/signed/' . $filename;
         $outputPath = storage_path('app/public/' . $path);
 
-        // Pastikan directory exists
+        // Ensure directory exists
         $outputDir = dirname($outputPath);
         if (!is_dir($outputDir)) {
             mkdir($outputDir, 0755, true);
         }
 
-        // Coba convert dengan FPDI dulu (jika PDF tidak pakai Object Streams)
-        $converted = false;
-        try {
-            $pdf = new Fpdi();
-            $pageCount = $pdf->setSourceFile($tempPath);
-
-            // Copy semua halaman dengan FPDI (akan otomatis convert ke format kompatibel)
-            for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
-                $templateId = $pdf->importPage($pageNo);
-                $size = $pdf->getTemplateSize($templateId);
-
-                $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
-                $pdf->useTemplate($templateId);
-            }
-
-            // Output ke file (FPDI akan save dalam format PDF 1.4 yang kompatibel)
-            $pdf->Output($outputPath, 'F');
-            $converted = true;
-
-            Log::info('PDF template converted to FPDI-compatible format', [
-                'original_size' => strlen($pdfData),
-                'converted_size' => file_exists($outputPath) ? filesize($outputPath) : 0
-            ]);
-        } catch (\Exception $e) {
-            Log::warning('FPDI failed to convert PDF (may use Object Streams), trying Ghostscript', [
-                'error' => $e->getMessage()
-            ]);
-
-            // Jika FPDI gagal, coba convert dengan Ghostscript (jika tersedia)
-            $gsCommand = $this->findGhostscriptCommand();
-            if ($gsCommand) {
-                try {
-                    // Convert PDF menggunakan Ghostscript ke PDF 1.4 (tanpa object streams)
-                    $command = escapeshellarg($gsCommand) . ' -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/prepress -dUseObjectStreams=false -dUseFlateCompression=true -dCompressFonts=false -dSubsetFonts=false -sOutputFile=' . escapeshellarg($outputPath) . ' ' . escapeshellarg($tempPath) . ' 2>&1';
-
-                    exec($command, $output, $returnCode);
-
-                    if ($returnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0) {
-                        $converted = true;
-                        Log::info('PDF template converted with Ghostscript', [
-                            'original_size' => strlen($pdfData),
-                            'converted_size' => filesize($outputPath)
-                        ]);
-                    }
-                } catch (\Exception $gsError) {
-                    Log::error('Ghostscript conversion failed', ['error' => $gsError->getMessage()]);
-                }
-            }
-        }
-
-        // Jika convert gagal, throw error yang jelas (jangan save PDF yang tidak kompatibel)
-        if (!$converted) {
-            $gsCommand = $this->findGhostscriptCommand();
-            $errorMessage = "PDF template menggunakan kompresi Object Streams yang tidak didukung FPDI.\n\n";
-
-            if (!$gsCommand) {
-                $errorMessage .= "SOLUSI:\n";
-                $errorMessage .= "1. Install Ghostscript:\n";
-                $errorMessage .= "   - Windows: Download dari https://www.ghostscript.com/download/gsdnld.html\n";
-                $errorMessage .= "   - Linux: sudo apt-get install ghostscript\n";
-                $errorMessage .= "   - Mac: brew install ghostscript\n\n";
-                $errorMessage .= "2. Setelah install, restart server dan coba tanda tangani template lagi.\n\n";
-                $errorMessage .= "ATAU convert PDF template secara manual:\n";
-                $errorMessage .= "- Buka PDF di Adobe Acrobat atau tool PDF lainnya\n";
-                $errorMessage .= "- Save As / Export ke format PDF 1.4 (tanpa object streams)\n";
-                $errorMessage .= "- Upload ulang template yang sudah di-convert";
-            } else {
-                $errorMessage .= "Ghostscript tersedia tapi convert gagal. Silakan convert PDF template secara manual.";
-            }
-
-            Log::error('Failed to convert PDF template', [
-                'template_id' => $template->id,
-                'ghostscript_available' => $gsCommand ? 'YES' : 'NO',
-                'error_message' => $errorMessage
-            ]);
-
-            throw new \Exception($errorMessage);
-        }
+        // Save the PDF directly (frontend handles the cumulative signing by loading the previous PDF)
+        // We just need to save what the frontend sends us.
+        // Note: Frontend now disables Object Streams, so this should be compatible.
+        file_put_contents($outputPath, $pdfData);
 
         // Update template with signed file path
         $template->update(['signed_template_path' => $path]);
 
-        // Verify the saved file
-        $savedFileSize = file_exists($outputPath) ? filesize($outputPath) : 0;
+        // Check if template is fully signed
+        if ($template->fresh()->isCompleted()) {
+            Log::info('Template fully signed.', ['template_id' => $template->id]);
+            // QR code is NOT added to template, only to generated certificates
+        }
+
         Log::info('Signed template PDF saved successfully', [
             'template_id' => $template->id,
             'path' => $path,
-            'original_size' => strlen($pdfData),
-            'saved_size' => $savedFileSize,
-            'converted' => $converted
+            'size' => filesize($outputPath)
         ]);
-
-        // Clean up temp file
-        if (file_exists($tempPath)) {
-            unlink($tempPath);
-        }
     }
 
     /**
@@ -665,5 +575,169 @@ class SignatureService
         }
 
         return null;
+    }
+    /**
+     * Add verification QR code to template PDF
+     */
+    public function addTemplateVerificationQRCode(TemplateSertif $template): void
+    {
+        if (!$template->signed_template_path) {
+            return;
+        }
+
+        $filePath = storage_path('app/public/' . $template->signed_template_path);
+        if (!file_exists($filePath)) {
+            return;
+        }
+
+        try {
+            // Initialize FPDI
+            $pdf = new Fpdi();
+            $pageCount = $pdf->setSourceFile($filePath);
+
+            // Copy all pages
+            for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+                $templateId = $pdf->importPage($pageNo);
+                $size = $pdf->getTemplateSize($templateId);
+
+                $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+                $pdf->useTemplate($templateId);
+
+                // Add QR code on the last page
+                if ($pageNo === $pageCount) {
+                    // Create verification URL
+                    $baseUrl = config('app.url', 'http://localhost:8000');
+                    $verificationUrl = $baseUrl . "/verify-template/" . $template->id;
+
+                    // Generate QR code
+                    $qrCode = new QrCode($verificationUrl);
+                    $writer = new PngWriter();
+                    $result = $writer->write($qrCode);
+
+                    // Save QR code temporarily
+                    $qrPath = storage_path('app/temp_qr_' . uniqid() . '.png');
+                    file_put_contents($qrPath, $result->getString());
+
+                    // Position QR code at bottom right corner
+                    $qrSize = 15;
+                    $margin = 10;
+                    $x = $size['width'] - $qrSize - $margin;
+                    $y = $size['height'] - $qrSize - $margin;
+
+                    // Add QR code to PDF
+                    $pdf->Image($qrPath, $x, $y, $qrSize, $qrSize, 'PNG');
+
+                    // Clean up temporary QR file
+                    if (file_exists($qrPath)) {
+                        unlink($qrPath);
+                    }
+                }
+            }
+
+            // Save back to the same path
+            $pdf->Output($filePath, 'F');
+            
+            Log::info('QR code added to template', ['template_id' => $template->id]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to add QR code to template', [
+                'template_id' => $template->id,
+                'error' => $e->getMessage()
+            ]);
+            // Don't throw exception, just log error so the signing process completes
+        }
+    }
+
+    /**
+     * Reconstruct signed template PDF from original file + active signatures
+     */
+    public function reconstructSignedTemplate(TemplateSertif $template): void
+    {
+        Log::info('Reconstructing signed template', ['template_id' => $template->id]);
+
+        // Get all active signatures for this template
+        $signatures = Signature::where('templateSertifId', $template->id)
+            ->orderBy('created_at')
+            ->get();
+
+        if ($signatures->isEmpty()) {
+            Log::info('No signatures left, clearing signed template path');
+            // Delete the signed file if exists
+            if ($template->signed_template_path) {
+                $fullPath = storage_path('app/public/' . $template->signed_template_path);
+                if (file_exists($fullPath)) {
+                    unlink($fullPath);
+                }
+            }
+            $template->update(['signed_template_path' => null]);
+            return;
+        }
+
+        // We have signatures, so we need to rebuild the PDF
+        // 1. Load original template
+        $originalPath = storage_path('app/public/templates/' . $template->files);
+        if (!file_exists($originalPath)) {
+            throw new Exception('Original template file not found');
+        }
+
+        // 2. Create new PDF from original
+        // Create temp file for reconstruction
+        $tempPath = storage_path('app/temp/reconstruct_' . uniqid() . '.pdf');
+        $tempDir = dirname($tempPath);
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        $pdf = new Fpdi();
+        $pageCount = $pdf->setSourceFile($originalPath);
+
+        for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+            $templateId = $pdf->importPage($pageNo);
+            $size = $pdf->getTemplateSize($templateId);
+
+            $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+            $pdf->useTemplate($templateId);
+
+            // Apply signatures for this page
+            $pageSignatures = $signatures->where('page_number', $pageNo);
+            foreach ($pageSignatures as $signature) {
+                if ($signature->type === 'physical') {
+                    $this->applyPhysicalSignature($pdf, $signature, $size);
+                }
+            }
+        }
+
+        // Save to temp path
+        $pdf->Output($tempPath, 'F');
+
+        // 3. Move to final signed path
+        // Use consistent filename
+        $originalFilename = str_replace(' ', '_', $template->files);
+        $filename = 'signed_' . $template->id . '_' . $originalFilename;
+        $path = 'templates/signed/' . $filename;
+        $outputPath = storage_path('app/public/' . $path);
+
+        // Ensure directory exists
+        $outputDir = dirname($outputPath);
+        if (!is_dir($outputDir)) {
+            mkdir($outputDir, 0755, true);
+        }
+
+        // Move temp file to output path
+        // If file exists, overwrite it
+        if (file_exists($outputPath)) {
+            unlink($outputPath);
+        }
+        rename($tempPath, $outputPath);
+
+        // Update template path
+        $template->update(['signed_template_path' => $path]);
+
+        // 4. Check if fully signed (again)
+        if ($template->fresh()->isCompleted()) {
+             // QR code is NOT added to template
+        }
+
+        Log::info('Template reconstruction complete', ['path' => $path]);
     }
 }

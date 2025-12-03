@@ -27,4 +27,6 @@ return new class extends Migration
     {
         Schema::dropIfExists('encryption_keys');
     }
+
+    
 };

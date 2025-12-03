@@ -9,11 +9,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router, useForm } from '@inertiajs/react';
-import { Save, X, Plus, Trash2 } from 'lucide-react';
+import { Plus, Save, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useToast } from '@/hooks/use-toast';
 
 interface User {
     id: string;
@@ -26,6 +26,8 @@ interface VariablePosition {
     name: string;
     x: number;
     y: number;
+    x_pct?: number;
+    y_pct?: number;
     fontSize?: number;
     fontFamily?: string;
     alignment?: 'L' | 'C' | 'R';
@@ -57,7 +59,7 @@ export default function TemplatesMapVariables({ template, user }: Props) {
     const [isAddingVariable, setIsAddingVariable] = useState(false);
     const [newVariableName, setNewVariableName] = useState('');
 
-    const { data, setData, post, processing } = useForm({
+    const { data, setData, post, processing, transform } = useForm({
         variable_positions: variables,
     });
 
@@ -153,6 +155,8 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                 name: newVariableName.trim(),
                 x: x,
                 y: y,
+                x_pct: x / canvas.width,
+                y_pct: y / canvas.height,
                 fontSize: 12,
                 fontFamily: 'Arial',
                 alignment: 'C',
@@ -167,6 +171,8 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                 ...updated[selectedVariable],
                 x: x,
                 y: y,
+                x_pct: x / canvas.width,
+                y_pct: y / canvas.height,
             };
             setVariables(updated);
             setSelectedVariable(null);
@@ -187,7 +193,11 @@ export default function TemplatesMapVariables({ template, user }: Props) {
             return;
         }
 
-        setData('variable_positions', variables);
+        transform((data) => ({
+            ...data,
+            variable_positions: variables,
+        }));
+
         post(`/templates/${template.id}/save-variable-positions`, {
             onSuccess: () => {
                 success('Posisi variabel berhasil disimpan');
@@ -303,8 +313,8 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                         {isAddingVariable
                                             ? `Klik pada PDF untuk menambahkan variabel "${newVariableName}"`
                                             : selectedVariable !== null
-                                            ? `Klik pada PDF untuk memindahkan variabel "${variables[selectedVariable]?.name}"`
-                                            : 'Klik pada PDF untuk menambahkan atau memindahkan variabel'}
+                                                ? `Klik pada PDF untuk memindahkan variabel "${variables[selectedVariable]?.name}"`
+                                                : 'Klik pada PDF untuk menambahkan atau memindahkan variabel'}
                                     </p>
                                 </div>
                             </CardContent>
@@ -347,11 +357,10 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                     {variables.map((variable, index) => (
                                         <Card
                                             key={index}
-                                            className={`p-3 ${
-                                                selectedVariable === index
-                                                    ? 'border-blue-500 bg-blue-50'
-                                                    : ''
-                                            }`}
+                                            className={`p-3 ${selectedVariable === index
+                                                ? 'border-blue-500 bg-blue-50'
+                                                : ''
+                                                }`}
                                         >
                                             <div className="space-y-2">
                                                 <div className="flex items-center justify-between">

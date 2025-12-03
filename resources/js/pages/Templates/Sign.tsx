@@ -113,8 +113,8 @@ export default function TemplateSign({ template, user }: Props) {
                     </div>
                     <div className="flex items-center space-x-2">
                         {isTemplateSigned ? (
-                            <Badge className="bg-green-100 text-green-800">
-                                ✓ Sudah Ditandatangani (Fisik + Digital)
+                            <Badge className="bg-blue-100 text-blue-800">
+                                ℹ️ Partially Signed
                             </Badge>
                         ) : (
                             <Badge className="bg-yellow-100 text-yellow-800">
@@ -138,8 +138,7 @@ export default function TemplateSign({ template, user }: Props) {
                                     pdfUrl={`/templates/${template.id}/preview`}
                                     onSave={handleSignatureComplete}
                                     canEdit={
-                                        user.role === 'pimpinan' &&
-                                        !isTemplateSigned
+                                        user.role === 'pimpinan'
                                     }
                                     documentId={template.id}
                                     isTemplate={true}
@@ -172,7 +171,7 @@ export default function TemplateSign({ template, user }: Props) {
                                     </label>
                                     <p className="text-xs sm:text-sm">
                                         {isTemplateSigned
-                                            ? 'Sudah Ditandatangani'
+                                            ? 'Partially Signed'
                                             : 'Belum Ditandatangani'}
                                     </p>
                                 </div>
@@ -209,17 +208,9 @@ export default function TemplateSign({ template, user }: Props) {
                                 )}
 
                                 {isTemplateSigned && (
-                                    <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3">
-                                        <p className="text-xs text-green-800 sm:text-sm">
-                                            ✅ Template ini sudah ditandatangani
-                                            (fisik + digital) dan siap digunakan
-                                            untuk membuat sertifikat.
-                                        </p>
-                                        <p className="mt-1 text-xs text-green-700">
-                                            💡 Sertifikat yang dibuat dari
-                                            template ini akan memiliki tanda
-                                            tangan fisik dan QR code verifikasi
-                                            digital.
+                                    <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                                        <p className="text-xs text-blue-800 sm:text-sm">
+                                            ℹ️ Template ini sudah memiliki tanda tangan, namun mungkin belum lengkap.
                                         </p>
                                     </div>
                                 )}

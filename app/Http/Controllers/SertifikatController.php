@@ -251,6 +251,19 @@ class SertifikatController extends Controller
                     ->with('error', 'Hanya pimpinan yang dapat menandatangani template.');
             }
 
+            // Check if user is a designated signer
+            $signer = $template->signers()->where('user_id', $user->id)->first();
+            if (!$signer) {
+                return redirect()->back()
+                    ->with('error', 'Anda tidak terdaftar sebagai penanda tangan untuk template ini.');
+            }
+
+            // Check if user already signed
+            if ($signer->is_signed) {
+                return redirect()->back()
+                    ->with('error', 'Anda sudah menandatangani template ini.');
+            }
+
             // If we have signedPdfBase64, that means the signature was created with canvas
             if ($request->has('signedPdfBase64') && $request->signedPdfBase64) {
                 Log::info('Creating physical signature record...');
@@ -320,6 +333,14 @@ class SertifikatController extends Controller
                     'template_id' => $template->id,
                 ]);
 
+                // Update signer status
+                $signer->update(['is_signed' => true]);
+
+                // Check if all signers have signed
+                if ($template->fresh()->isCompleted()) {
+                    Log::info('Template fully signed.');
+                }
+
                 return redirect()->route('templates.show', $template->id)
                     ->with('success', 'Template berhasil ditandatangani!');
             } else {
@@ -329,6 +350,15 @@ class SertifikatController extends Controller
                     $user,
                     $request->only(['signatureData'])
                 );
+
+                $signedPath = $this->certificateService->signTemplate(
+                    $template,
+                    $user,
+                    $request->only(['signatureData'])
+                );
+
+                // Update signer status
+                $signer->update(['is_signed' => true]);
 
                 return redirect()->route('templates.show', $template->id)
                     ->with('success', 'Template berhasil ditandatangani!');
@@ -341,7 +371,7 @@ class SertifikatController extends Controller
             ]);
 
             return redirect()->back()
-                ->with('error', 'Gagal menandatangani template: ' . $e->getMessage());
+                ->with('error', $e->getMessage());
         }
     }
 
@@ -414,6 +444,7 @@ class SertifikatController extends Controller
                 'Content-Type' => 'application/pdf',
                 'Content-Disposition' => 'inline; filename="Sertifikat_' . ($sertifikat->nomor_sertif ?? 'certificate') . '.pdf"',
                 'Access-Control-Allow-Origin' => '*',
+                'Accept-Ranges' => 'none', // Try to discourage IDM
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to view certificate', [

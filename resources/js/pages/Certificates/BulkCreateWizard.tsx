@@ -1,3 +1,4 @@
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
     Card,
@@ -6,6 +7,7 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
     Select,
@@ -14,25 +16,22 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 import AppLayout from '@/layouts/app-layout';
 import { routes } from '@/utils/routes';
-import { Head, useForm, router } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import {
-    Award,
-    Download,
-    Upload,
-    CheckCircle2,
     AlertCircle,
-    Settings,
-    FileSpreadsheet,
-    ArrowRight,
     ArrowLeft,
+    ArrowRight,
+    Award,
+    CheckCircle2,
+    Download,
+    FileSpreadsheet,
     MapPin,
+    Upload
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface VariablePosition {
     name: string;
@@ -81,7 +80,7 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
 
     const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
 
-    const { data, setData, post, processing, errors } = useForm({
+    const { data, setData, post, processing, errors, transform } = useForm({
         templateSertifId: '',
         excel_file: null as File | null,
         passphrase: '',
@@ -222,19 +221,23 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
             return;
         }
 
-        setData('variable_positions', variables);
+        transform((data) => ({
+            ...data,
+            variable_positions: variables,
+        }));
+
         post(`/templates/${selectedTemplateId}/save-variable-positions`, {
             preserveScroll: true,
             onSuccess: () => {
                 success('Posisi variabel berhasil disimpan');
-                
+
                 // Reload page untuk mendapatkan data template terbaru dari server
                 router.reload({
                     only: ['templates'],
                     preserveState: false,
                     preserveScroll: false,
                 });
-                
+
                 // Auto download template Excel setelah save (dengan delay untuk memastikan DB ter-update)
                 // Delay lebih lama untuk memastikan reload selesai
                 setTimeout(() => {
@@ -431,8 +434,8 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                         {isMappingMode
                                             ? `Klik pada PDF untuk menambahkan variabel "${newVariableName}"`
                                             : selectedVariable !== null
-                                            ? `Klik pada PDF untuk memindahkan variabel "${variables[selectedVariable]?.name}"`
-                                            : 'Masukkan nama variabel dan klik "Tambah", lalu klik pada PDF. Atau klik variabel yang sudah ada untuk memindahkannya.'}
+                                                ? `Klik pada PDF untuk memindahkan variabel "${variables[selectedVariable]?.name}"`
+                                                : 'Masukkan nama variabel dan klik "Tambah", lalu klik pada PDF. Atau klik variabel yang sudah ada untuk memindahkannya.'}
                                     </p>
                                 </div>
                             </CardContent>
@@ -475,9 +478,8 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                         {variables.map((variable, index) => (
                                             <div
                                                 key={index}
-                                                className={`p-3 border rounded ${
-                                                    selectedVariable === index ? 'border-blue-500 bg-blue-50' : ''
-                                                }`}
+                                                className={`p-3 border rounded ${selectedVariable === index ? 'border-blue-500 bg-blue-50' : ''
+                                                    }`}
                                             >
                                                 <div className="flex items-center justify-between mb-2">
                                                     <span className="font-medium text-sm">{variable.name}</span>

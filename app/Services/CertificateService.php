@@ -574,7 +574,7 @@ class CertificateService
         return null;
     }
 
-    private function addTextOverlayWithVariables($pdf, TemplateSertif $template, array $excelRow, ?string $nomorSertif, ?string $passphrase, array $pageSize, ?string $sertifikatId = null): void
+    private function addTextOverlayWithVariables($pdf, TemplateSertif $template, array $excelRow, string $nomorSertif, ?string $passphrase, array $pageSize, string $sertifikatId): void
     {
         Log::info('Adding text overlay with variable positions', [
             'pageSize' => $pageSize,
@@ -632,33 +632,52 @@ class CertificateService
                 }
 
                 if ($value) {
-                    // Convert web/canvas coordinates to PDF coordinates (SAMA PERSIS seperti TTD)
-                    // PDF viewer dimensions in the web interface
-                    $webViewerWidth = 800;
-                    $webViewerHeight = 750;
+                    // Check if we have percentage-based coordinates (new method)
+                    if (isset($variable['x_pct']) && isset($variable['y_pct'])) {
+                        // Calculate PDF coordinates based on percentage and actual page size
+                        // Origin is Top-Left (standard for FPDF/TCPDF)
+                        $pdfX = $variable['x_pct'] * $pageSize['width'];
+                        $pdfY = $variable['y_pct'] * $pageSize['height'];
+                        
+                        Log::info('Using percentage coordinates', [
+                            'varName' => $varName,
+                            'x_pct' => $variable['x_pct'],
+                            'y_pct' => $variable['y_pct'],
+                            'pdfX' => $pdfX,
+                            'pdfY' => $pdfY,
+                            'pageSize' => $pageSize
+                        ]);
+                    } else {
+                        // Fallback to old method (legacy support)
+                        // Convert web/canvas coordinates to PDF coordinates
+                        // PDF viewer dimensions in the web interface
+                        $webViewerWidth = 800;
+                        $webViewerHeight = 750;
+    
+                        // Account for PDF viewer toolbar and padding offset
+                        $toolbarOffset = 120;
+                        $actualWebHeight = $webViewerHeight - $toolbarOffset;
+    
+                        // Calculate scaling factors
+                        $scaleX = $pageSize['width'] / $webViewerWidth;
+                        $scaleY = $pageSize['height'] / $actualWebHeight;
+    
+                        // Convert web coordinates to PDF coordinates
+                        $pdfX = $x * $scaleX;
+                        $scaledY = ($y - $toolbarOffset) * $scaleY;
+                        
+                        // Old logic inverted Y, which might have been the cause of the issue.
+                        // We'll keep it for legacy compatibility but it might be incorrect.
+                        $pdfY = $pageSize['height'] - $scaledY;
+                        
+                        Log::info('Using legacy coordinates', [
+                            'varName' => $varName,
+                            'pdfX' => $pdfX,
+                            'pdfY' => $pdfY
+                        ]);
+                    }
 
-                    // Account for PDF viewer toolbar and padding offset (sama seperti TTD)
-                    $toolbarOffset = 120;
-                    $actualWebHeight = $webViewerHeight - $toolbarOffset;
-
-                    // Calculate scaling factors (sama seperti TTD)
-                    $scaleX = $pageSize['width'] / $webViewerWidth;
-                    $scaleY = $pageSize['height'] / $actualWebHeight;
-
-                    // Convert web coordinates to PDF coordinates
-                    // PENTING: 
-                    // 1. Kurangi toolbarOffset dari web Y (karena toolbar di atas)
-                    // 2. Scale dengan scaleY
-                    // 3. SetXY menggunakan bottom-left origin, jadi kita perlu invert Y
-                    //    Web Y (top-left origin) -> PDF Y (bottom-left untuk SetXY)
-                    //    Formula: pdfY = pageHeight - scaledY (dari top)
-                    $pdfX = $x * $scaleX;
-                    $scaledY = ($y - $toolbarOffset) * $scaleY;
-                    // Invert Y: PDF height - scaled Y (karena SetXY menggunakan bottom-left origin)
-                    // Tapi Cell() menempatkan text dengan baseline di Y, jadi kita perlu adjust
-                    $pdfY = $pageSize['height'] - $scaledY;
-
-                    // Pastikan Y tidak negatif atau terlalu besar (di luar halaman)
+                    // Ensure Y is within bounds
                     $pdfY = max(0, min($pdfY, $pageSize['height'] - 5));
 
                     // Set font dengan font family yang dipilih (auto-detect TCPDF atau FPDF)
@@ -675,22 +694,14 @@ class CertificateService
                         $xPos = $pdfX - $textWidth;
                     }
 
-                    // Add text - timpa di atas PDF (sama seperti TTD menimpa signature)
+                    // Add text - timpa di atas PDF
                     $pdf->SetXY($xPos, $pdfY);
                     $pdf->Cell($textWidth + 10, 8, $value, 0, 0, $alignment);
 
-                    Log::info('Text overlay added - timpa di atas PDF', [
+                    Log::info('Text overlay added', [
                         'varName' => $varName,
-                        'webCoords' => ['x' => $x, 'y' => $y],
-                        'scaledY' => $scaledY,
-                        'pdfCoords' => ['x' => $xPos, 'y' => $pdfY],
-                        'pageHeight' => $pageSize['height'],
                         'value' => $value,
-                        'fontFamily' => $fontFamily,
-                        'fontSize' => $fontSize,
-                        'alignment' => $alignment,
-                        'pageSize' => $pageSize,
-                        'isTCPDF' => $pdf instanceof FpdiTcpdf
+                        'pdfCoords' => ['x' => $xPos, 'y' => $pdfY],
                     ]);
                 }
             }
@@ -700,7 +711,7 @@ class CertificateService
         $this->addUniqueDigitalSignatureToTemplate($pdf, $template, $nomorSertif, $passphrase, $pageSize);
     }
 
-    private function addTextOverlayFallback(Fpdi $pdf, array $excelRow, string $nomorSertif, array $pageSize): void
+    private function addTextOverlayFallback($pdf, array $excelRow, string $nomorSertif, array $pageSize): void
     {
         // Fallback method if no variables mapped
         $namaPenerima = $excelRow[1] ?? 'Peserta';
@@ -772,7 +783,7 @@ class CertificateService
         }
     }
 
-    private function addDynamicDataToSignedTemplate(Fpdi $pdf, TemplateSertif $template, User $user, array $excelRow, string $nomorSertif, ?string $passphrase, array $pageSize): void
+    private function addDynamicDataToSignedTemplate($pdf, TemplateSertif $template, User $user, array $excelRow, string $nomorSertif, ?string $passphrase, array $pageSize): void
     {
         Log::info('Adding dynamic data to signed template (NO QR CODE - QR code hanya di sertifikat hasil bulk)');
 
@@ -796,7 +807,7 @@ class CertificateService
         // QR code akan ditambahkan di method addTextOverlayWithVariables saat generate sertifikat
     }
 
-    private function addTemplateSignature(Fpdi $pdf, User $signer, array $signatureData, array $pageSize): void
+    private function addTemplateSignature($pdf, User $signer, array $signatureData, array $pageSize): void
     {
         // Handle signature image from canvas (base64 data)
         if (isset($signatureData['signatureData'])) {
@@ -817,7 +828,7 @@ class CertificateService
         $pdf->Cell(100, 5, 'Tanggal: ' . now()->format('d/m/Y H:i:s'), 0, 1, 'L');
     }
 
-    private function addDynamicData(Fpdi $pdf, Sertifikat $sertifikat, User $recipient, array $pageSize): void
+    private function addDynamicData($pdf, Sertifikat $sertifikat, User $recipient, array $pageSize): void
     {
         $this->setFontForPDF($pdf, 'Arial', '', 10);
         $pdf->SetTextColor(0, 0, 0);
@@ -837,7 +848,7 @@ class CertificateService
         }
     }
 
-    private function addDynamicDataFromExcel(Fpdi $pdf, TemplateSertif $template, User $user, array $excelRow, array $pageSize): void
+    private function addDynamicDataFromExcel($pdf, TemplateSertif $template, User $user, array $excelRow, array $pageSize): void
     {
         Log::info('Adding dynamic data from Excel', [
             'template_id' => $template->id,
@@ -876,7 +887,7 @@ class CertificateService
         $this->addFallbackData($pdf, $namaPenerima, $nomorSertif, $tanggalTerbit, $jabatan, $departemen, $pageSize);
     }
 
-    private function replacePlaceholdersInPDF(Fpdi $pdf, array $placeholders, array $pageSize): void
+    private function replacePlaceholdersInPDF($pdf, array $placeholders, array $pageSize): void
     {
         Log::info('Replacing placeholders in PDF', [
             'pageSize' => $pageSize,
@@ -961,7 +972,7 @@ class CertificateService
         ];
     }
 
-    private function addFallbackData(Fpdi $pdf, string $namaPenerima, string $nomorSertif, string $tanggalTerbit, string $jabatan, string $departemen, array $pageSize): void
+    private function addFallbackData($pdf, string $namaPenerima, string $nomorSertif, string $tanggalTerbit, string $jabatan, string $departemen, array $pageSize): void
     {
         // Fallback method - add data at fixed positions
         $this->setFontForPDF($pdf, 'Arial', '', 10);
@@ -1058,7 +1069,7 @@ class CertificateService
         }
     }
 
-    private function addUniqueDigitalSignature(Fpdi $pdf, TemplateSertif $template, string $nomorSertif, array $pageSize): void
+    private function addUniqueDigitalSignature($pdf, TemplateSertif $template, string $nomorSertif, array $pageSize): void
     {
         try {
             // Generate verification URL untuk QR code
@@ -1133,7 +1144,7 @@ class CertificateService
         }
     }
 
-    private function addSignatureImage(Fpdi $pdf, string $signatureData, int $x, int $y, int $width, int $height): void
+    private function addSignatureImage($pdf, string $signatureData, int $x, int $y, int $width, int $height): void
     {
         try {
             $base64Data = preg_replace('/^data:image\/\w+;base64,/', '', $signatureData);

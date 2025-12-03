@@ -112,6 +112,9 @@ class SignatureController extends Controller
                 'position' => $request->position ?? [],
             ]);
 
+            // Update signer status
+            $this->updateSignerStatus($document, Auth::id());
+
             return response()->json([
                 'success' => true,
                 'message' => 'Physical signature created successfully',
@@ -148,15 +151,19 @@ class SignatureController extends Controller
                 'passphrase' => $request->passphrase,
             ]);
 
+            // Update signer status
+            $this->updateSignerStatus($document, Auth::id());
+
             return response()->json([
                 'success' => true,
                 'message' => 'Digital signature created successfully',
                 'signature' => $signature->load('user'),
             ]);
         } catch (\Exception $e) {
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create digital signature: ' . $e->getMessage(),
+                'message' => $e->getMessage(),
             ], 500);
         }
     }
@@ -222,9 +229,13 @@ class SignatureController extends Controller
                 Log::warning('No signed PDF data provided');
             }
 
+            // Update signer status
+            $this->updateSignerStatus($document, Auth::id());
+
             return redirect()->route('documents.show', $document->id)->with('success', 'Tanda tangan berhasil ditambahkan (Fisik + Digital)');
         } catch (\Exception $e) {
-            return redirect()->back()->withErrors(['error' => 'Gagal menambahkan tanda tangan: ' . $e->getMessage()]);
+        } catch (\Exception $e) {
+            return redirect()->back()->withErrors(['error' => $e->getMessage()]);
         }
     }
 
@@ -250,6 +261,7 @@ class SignatureController extends Controller
             return response($file, 200, [
                 'Content-Type' => 'application/pdf',
                 'Content-Disposition' => 'inline; filename="signed_' . basename($document->files) . '"',
+                'Accept-Ranges' => 'none', // Try to discourage IDM
             ]);
         } catch (\Exception $e) {
             return response('Error generating signed PDF: ' . $e->getMessage(), 500);
@@ -405,17 +417,22 @@ class SignatureController extends Controller
             return false;
         }
 
-        // Check if user is the recipient (pimpinan who should sign)
-        if ($document->to !== $user->id) {
+        // Check if user is a designated signer
+        $isSigner = $document->signers()
+            ->where('user_id', $user->id)
+            ->exists();
+
+        if (!$isSigner) {
             return false;
         }
 
         // Check if user already signed
-        $existingSignature = $document->signatures()
-            ->where('userId', $user->id)
+        $hasSigned = $document->signers()
+            ->where('user_id', $user->id)
+            ->where('is_signed', true)
             ->exists();
 
-        return !$existingSignature;
+        return !$hasSigned;
     }
 
     /**
@@ -480,5 +497,11 @@ class SignatureController extends Controller
                 'message' => 'Gagal memverifikasi dokumen: ' . $e->getMessage(),
             ]);
         }
+    }
+    private function updateSignerStatus(Document $document, string $userId)
+    {
+        $document->signers()
+            ->where('user_id', $userId)
+            ->update(['is_signed' => true]);
     }
 }

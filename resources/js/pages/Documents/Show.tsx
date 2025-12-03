@@ -70,6 +70,12 @@ interface Document {
     to_user: User;
     review: Review;
     signatures: Signature[];
+    signers: {
+        id: string;
+        user: User;
+        is_signed: boolean;
+        sign_order: number;
+    }[];
 }
 
 interface Props {
@@ -158,7 +164,9 @@ export default function DocumentsShow({ document, user }: Props) {
     const canSign =
         user.role === 'pimpinan' &&
         document.review.status === 'approved' &&
-        document.to_user.id === user.id;
+        document.signers?.some(
+            (signer) => signer.user.id === user.id && !signer.is_signed
+        );
 
     const handleDeleteSignature = (signatureId: string) => {
         setDeleteSignatureId(signatureId);
@@ -179,8 +187,8 @@ export default function DocumentsShow({ document, user }: Props) {
             onError: (errors) => {
                 error(
                     'Gagal menghapus tanda tangan: ' +
-                        (Object.values(errors)[0] ||
-                            'Terjadi kesalahan yang tidak diketahui'),
+                    (Object.values(errors)[0] ||
+                        'Terjadi kesalahan yang tidak diketahui'),
                 );
             },
         });
@@ -290,12 +298,21 @@ export default function DocumentsShow({ document, user }: Props) {
                                     </div>
                                     <div>
                                         <Label className="text-sm font-medium text-gray-500">
-                                            Ditujukan
+                                            Ditujukan (Signers)
                                         </Label>
-                                        <p className="flex items-center">
-                                            <User className="mr-2 h-4 w-4" />
-                                            {document.to_user.name}
-                                        </p>
+                                        <div className="space-y-1">
+                                            {document.signers?.map((signer) => (
+                                                <div key={signer.id} className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center">
+                                                        <User className="mr-2 h-4 w-4" />
+                                                        {signer.user.name}
+                                                    </div>
+                                                    <Badge variant={signer.is_signed ? "default" : "outline"} className={signer.is_signed ? "bg-green-100 text-green-800" : "text-gray-500"}>
+                                                        {signer.is_signed ? "Sudah TTD" : "Belum TTD"}
+                                                    </Badge>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -471,7 +488,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                                 type="submit"
                                                 className={
                                                     reviewData.status ===
-                                                    'approved'
+                                                        'approved'
                                                         ? 'bg-green-600 hover:bg-green-700'
                                                         : 'bg-red-600 hover:bg-red-700'
                                                 }
@@ -481,8 +498,8 @@ export default function DocumentsShow({ document, user }: Props) {
                                                     ? 'Menyimpan...'
                                                     : reviewData.status ===
                                                         'approved'
-                                                      ? 'Setujui'
-                                                      : 'Tolak'}
+                                                        ? 'Setujui'
+                                                        : 'Tolak'}
                                             </Button>
                                         </div>
                                     </form>
@@ -520,7 +537,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                                             </p>
                                                             <p className="text-sm text-gray-500">
                                                                 {signature.type ===
-                                                                'digital'
+                                                                    'digital'
                                                                     ? 'Tanda Tangan Digital'
                                                                     : 'Tanda Tangan Fisik'}
                                                             </p>
@@ -537,34 +554,34 @@ export default function DocumentsShow({ document, user }: Props) {
                                                         <Badge
                                                             variant={
                                                                 signature.type ===
-                                                                'digital'
+                                                                    'digital'
                                                                     ? 'default'
                                                                     : 'secondary'
                                                             }
                                                         >
                                                             {signature.type ===
-                                                            'digital'
+                                                                'digital'
                                                                 ? 'Digital'
                                                                 : 'Fisik'}
                                                         </Badge>
                                                         {user.role ===
                                                             'pimpinan' && (
-                                                            <div className="flex space-x-2">
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() =>
-                                                                        handleDeleteSignature(
-                                                                            signature.id,
-                                                                        )
-                                                                    }
-                                                                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                                                                    title="Hapus TTD"
-                                                                >
-                                                                    <Trash2 className="h-4 w-4" />
-                                                                </Button>
-                                                            </div>
-                                                        )}
+                                                                <div className="flex space-x-2">
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() =>
+                                                                            handleDeleteSignature(
+                                                                                signature.id,
+                                                                            )
+                                                                        }
+                                                                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                                        title="Hapus TTD"
+                                                                    >
+                                                                        <Trash2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </div>
+                                                            )}
                                                     </div>
                                                 </div>
                                             ),

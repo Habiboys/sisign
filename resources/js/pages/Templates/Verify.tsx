@@ -18,6 +18,12 @@ interface TemplateInfo {
     review_status: 'pending' | 'approved' | 'rejected';
     is_signed: boolean;
     signed_at?: number;
+    signers: Array<{
+        name: string;
+        role: string;
+        is_signed: boolean;
+        order: number;
+    }>;
 }
 
 interface ReviewInfo {
@@ -189,13 +195,60 @@ export default function TemplateVerification({
                                                     <p className="text-gray-600">
                                                         {new Date(
                                                             template.signed_at *
-                                                                1000,
+                                                            1000,
                                                         ).toLocaleString(
                                                             'id-ID',
                                                         )}
                                                     </p>
                                                 </div>
                                             )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Daftar Penanda Tangan */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center">
+                                        <User className="mr-2 h-5 w-5" />
+                                        Daftar Penanda Tangan
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="space-y-4">
+                                        {template.signers.map((signer, index) => (
+                                            <div
+                                                key={index}
+                                                className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 p-3"
+                                            >
+                                                <div className="flex items-center space-x-3">
+                                                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600 font-bold text-sm">
+                                                        {signer.order}
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-medium text-gray-900">
+                                                            {signer.name}
+                                                        </p>
+                                                        <p className="text-xs text-gray-500 capitalize">
+                                                            {signer.role}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    {signer.is_signed ? (
+                                                        <Badge className="bg-green-100 text-green-800">
+                                                            <CheckCircle className="mr-1 h-3 w-3" />
+                                                            Sudah TTD
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge className="bg-gray-100 text-gray-800">
+                                                            <Clock className="mr-1 h-3 w-3" />
+                                                            Belum TTD
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -310,6 +363,6 @@ export default function TemplateVerification({
                     </p>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
