@@ -35,6 +35,12 @@ interface Template {
     review: Review;
     created_at: string;
     updatedAt: string;
+    signers?: {
+        id: string;
+        user: User;
+        is_signed: boolean;
+        sign_order: number;
+    }[];
 }
 
 interface Props {
@@ -78,7 +84,9 @@ export default function TemplatesShow({ template, user }: Props) {
     const canSign =
         user.role === 'pimpinan' &&
         template.review.status === 'approved' &&
-        !template.signed_template_path;
+        template.signers?.some(
+            (signer) => signer.user.id === user.id && !signer.is_signed
+        );
 
     const canRemoveSignature =
         user.role === 'pimpinan' && template.signed_template_path;
@@ -215,6 +223,25 @@ export default function TemplatesShow({ template, user }: Props) {
                                         </p>
                                     </div>
                                 </div>
+
+                                <div>
+                                    <h4 className="font-medium text-gray-900 mb-2">
+                                        Status Penanda Tangan
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {template.signers?.map((signer) => (
+                                            <div key={signer.id} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded">
+                                                <div className="flex items-center">
+                                                    <User className="mr-2 h-4 w-4 text-gray-500" />
+                                                    <span>{signer.user.name}</span>
+                                                </div>
+                                                <Badge variant={signer.is_signed ? "default" : "outline"} className={signer.is_signed ? "bg-green-100 text-green-800" : "text-gray-500"}>
+                                                    {signer.is_signed ? "Sudah TTD" : "Belum TTD"}
+                                                </Badge>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             </CardContent>
                         </Card>
                         {/* Actions */}
@@ -238,19 +265,33 @@ export default function TemplatesShow({ template, user }: Props) {
                                 </Button>
 
                                 {template.signed_template_path && (
-                                    <Button
-                                        variant="outline"
-                                        className="w-full"
-                                        onClick={() =>
-                                            window.open(
-                                                `/templates/${template.id}/download-signed`,
-                                                '_blank',
-                                            )
-                                        }
-                                    >
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        Lihat Template Bertanda Tangan
-                                    </Button>
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            className="w-full"
+                                            onClick={() =>
+                                                window.open(
+                                                    `/templates/${template.id}/download-signed`,
+                                                    '_blank',
+                                                )
+                                            }
+                                        >
+                                            <Eye className="mr-2 h-4 w-4" />
+                                            Lihat Template Bertanda Tangan
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                                            onClick={() =>
+                                                router.visit(
+                                                    `/templates/${template.id}/map-variables`,
+                                                )
+                                            }
+                                        >
+                                            <Plus className="mr-2 h-4 w-4" />
+                                            Mapping Variabel untuk Bulk
+                                        </Button>
+                                    </>
                                 )}
 
                                 {canSign && (

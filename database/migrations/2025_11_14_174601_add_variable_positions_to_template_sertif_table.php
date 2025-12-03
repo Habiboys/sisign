@@ -11,12 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('encryption_keys', function (Blueprint $table) {
-            $table->uuid('id')->primary();
-            $table->uuid('userId');
-            $table->text('publicKey');
-            $table->text('privateKey');
-            $table->timestamps();
+        Schema::table('template_sertif', function (Blueprint $table) {
+            $table->json('variable_positions')->nullable()->after('signed_template_path');
         });
     }
 
@@ -25,8 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('encryption_keys');
+        Schema::table('template_sertif', function (Blueprint $table) {
+            $table->dropColumn('variable_positions');
+        });
     }
-
-    
 };

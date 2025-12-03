@@ -85,7 +85,7 @@
     </div>
 
     <div class="content">
-        <h2>Selamat {{ $recipient->name }}!</h2>
+        <h2>Selamat {{ $recipientName ?? ($recipient->name ?? 'Penerima') }}!</h2>
 
         <p>Anda telah menerima sertifikat digital dengan detail sebagai berikut:</p>
 
@@ -96,11 +96,11 @@
             </div>
             <div class="info-row">
                 <div class="info-label">Nama Penerima:</div>
-                <div class="info-value">{{ $recipient->name }}</div>
+                <div class="info-value">{{ $recipientName ?? ($recipient->name ?? 'Penerima Sertifikat') }}</div>
             </div>
             <div class="info-row">
                 <div class="info-label">Email:</div>
-                <div class="info-value">{{ $recipient->email }}</div>
+                <div class="info-value">{{ $recipientEmail ?? ($recipient->email ?? $sertifikat->email ?? 'N/A') }}</div>
             </div>
             <div class="info-row">
                 <div class="info-label">Tanggal Terbit:</div>

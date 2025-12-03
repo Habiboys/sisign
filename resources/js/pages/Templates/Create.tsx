@@ -8,11 +8,18 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { routes } from '@/utils/routes';
 import { Head, useForm } from '@inertiajs/react';
-import { FileCheck, Upload } from 'lucide-react';
+import { FileCheck, Plus, Upload } from 'lucide-react';
 
 interface User {
     id: string;
@@ -23,13 +30,15 @@ interface User {
 
 interface Props {
     user: User;
+    users: User[];
 }
 
-export default function TemplatesCreate({ user }: Props) {
+export default function TemplatesCreate({ user, users }: Props) {
     const { data, setData, post, processing, errors } = useForm({
         title: '',
         description: '',
         file: null as File | null,
+        signers: [''], // Initialize with one empty signer
     });
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -103,6 +112,62 @@ export default function TemplatesCreate({ user }: Props) {
                                     <p className="text-sm text-red-500">
                                         {errors.description}
                                     </p>
+                                )}
+                            </div>
+
+                            <div className="space-y-4">
+                                <Label>Penanda Tangan (Pimpinan)</Label>
+                                {Array.isArray(data.signers) && data.signers.map((signerId, index) => (
+                                    <div key={index} className="flex gap-2">
+                                        <div className="flex-1">
+                                            <Select
+                                                value={signerId}
+                                                onValueChange={(value) => {
+                                                    const newSigners = [...(data.signers as string[])];
+                                                    newSigners[index] = value;
+                                                    setData('signers', newSigners);
+                                                }}
+                                            >
+                                                <SelectTrigger className={errors.signers ? 'border-red-500' : ''}>
+                                                    <SelectValue placeholder={`Pilih Pimpinan ke-${index + 1}`} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {users.map((user) => (
+                                                        <SelectItem key={user.id} value={user.id}>
+                                                            {user.name} ({user.email})
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        {index > 0 && (
+                                            <Button
+                                                type="button"
+                                                variant="destructive"
+                                                onClick={() => {
+                                                    const newSigners = (data.signers as string[]).filter((_, i) => i !== index);
+                                                    setData('signers', newSigners);
+                                                }}
+                                            >
+                                                Hapus
+                                            </Button>
+                                        )}
+                                    </div>
+                                ))}
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        const currentSigners = Array.isArray(data.signers) ? data.signers : [];
+                                        setData('signers', [...currentSigners, '']);
+                                    }}
+                                    className="w-full"
+                                >
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Tambah Penanda Tangan
+                                </Button>
+                                {errors.signers && (
+                                    <p className="text-sm text-red-500">{errors.signers}</p>
                                 )}
                             </div>
 

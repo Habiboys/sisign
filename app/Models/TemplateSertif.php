@@ -20,11 +20,13 @@ class TemplateSertif extends Model
         'description',
         'reviewId',
         'signed_template_path',
+        'variable_positions',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
         'updatedAt' => 'datetime',
+        'variable_positions' => 'array',
     ];
 
     // Override timestamp column names
@@ -39,5 +41,23 @@ class TemplateSertif extends Model
     public function sertifikats(): HasMany
     {
         return $this->hasMany(Sertifikat::class, 'templateSertifId');
+    }
+
+    public function signers(): HasMany
+    {
+        return $this->hasMany(TemplateSigner::class, 'template_id');
+    }
+
+    public function isCompleted(): bool
+    {
+        // Check if all signers have signed
+        $totalSigners = $this->signers()->count();
+        if ($totalSigners === 0) {
+            // Fallback for legacy templates or if no signers defined yet
+            return false;
+        }
+        
+        $signedCount = $this->signers()->where('is_signed', true)->count();
+        return $totalSigners === $signedCount;
     }
 }

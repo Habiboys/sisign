@@ -126,6 +126,11 @@ distinguished_name = req_distinguished_name
             $privateKeyResource = openssl_pkey_get_private($privateKey);
         }
         if (!$privateKeyResource) {
+            // Check if it's likely a passphrase error
+            $error = openssl_error_string();
+            if ($passphrase && strpos($error, 'bad decrypt') !== false) {
+                throw new Exception('Passphrase salah. Silakan coba lagi.');
+            }
             throw new Exception('Invalid private key or passphrase');
         }
 

@@ -149,6 +149,7 @@ export default function TemplatesIndex({ templates, user }: Props) {
                                     <TableHead>Judul Template</TableHead>
                                     <TableHead>Deskripsi</TableHead>
                                     <TableHead>Status</TableHead>
+                                    <TableHead>Status Tanda Tangan</TableHead>
                                     <TableHead>Tanggal Dibuat</TableHead>
                                     <TableHead>Aksi</TableHead>
                                 </TableRow>
@@ -165,6 +166,17 @@ export default function TemplatesIndex({ templates, user }: Props) {
                                         <TableCell>
                                             {getStatusBadge(
                                                 template.review.status,
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            {template.signed_template_path ? (
+                                                <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                                    ✓ Sudah Ditandatangani
+                                                </Badge>
+                                            ) : (
+                                                <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                                                    ✗ Belum Ditandatangani
+                                                </Badge>
                                             )}
                                         </TableCell>
                                         <TableCell>

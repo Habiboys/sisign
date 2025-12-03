@@ -21,6 +21,8 @@ export const routes = {
         index: () => '/certificates',
         create: () => '/certificates/create',
         show: (id: string) => `/certificates/${id}`,
+        view: (id: string) => `/certificates/${id}/view`,
+        download: (id: string) => `/certificates/${id}/download`,
         store: () => '/certificates',
         destroy: (id: string) => `/certificates/${id}`,
         bulk: {
@@ -28,6 +30,7 @@ export const routes = {
             store: () => '/certificates/bulk',
         },
         generateFromExcel: () => '/certificates/generate-from-excel',
+        sendEmails: () => '/certificates/send-emails',
     },
     signatures: {
         create: (params?: { document_id?: string; template_id?: string }) => {

@@ -553,36 +553,37 @@ export default function PDFCanvasViewer({
                 console.log('Stamp drawn on PDF');
             }
 
-            // Generate QR code image with verification link
-            const baseUrl = window.location.origin;
-            const qrCodeData = isTemplate
-                ? `${baseUrl}/verify-template/${documentId}`
-                : `${baseUrl}/verify-document/${documentId}`;
-            console.log('QR Code data:', qrCodeData, 'isTemplate:', isTemplate);
-            const qrCodeImageData = await QRCode.toDataURL(qrCodeData, {
-                width: 60,
-                margin: 1,
-                color: {
-                    dark: '#000000',
-                    light: '#FFFFFF',
-                },
-            });
+            // Embed QR code if exists (only for documents, templates are handled by backend)
+            if (!isTemplate) {
+                // Generate QR code image with verification link
+                const baseUrl = window.location.origin;
+                const qrCodeData = `${baseUrl}/verify-document/${documentId}`;
+                console.log('QR Code data:', qrCodeData);
+                const qrCodeImageData = await QRCode.toDataURL(qrCodeData, {
+                    width: 60,
+                    margin: 1,
+                    color: {
+                        dark: '#000000',
+                        light: '#FFFFFF',
+                    },
+                });
 
-            // Embed QR code image
-            const qrCodeImage = await pdfDoc.embedPng(qrCodeImageData);
-            console.log('QR code embedded successfully');
+                // Embed QR code image
+                const qrCodeImage = await pdfDoc.embedPng(qrCodeImageData);
+                console.log('QR code embedded successfully');
 
-            // Add QR code at bottom right
-            page.drawImage(qrCodeImage, {
-                x: pageWidth - 80,
-                y: 20,
-                width: 60,
-                height: 60,
-            });
-            console.log('QR code drawn on PDF');
+                // Add QR code at bottom right
+                page.drawImage(qrCodeImage, {
+                    x: pageWidth - 80,
+                    y: 20,
+                    width: 60,
+                    height: 60,
+                });
+                console.log('QR code drawn on PDF');
+            }
 
-            // Save the signed PDF
-            const pdfBytes = await pdfDoc.save();
+            // Save the signed PDF with object streams disabled for FPDI compatibility
+            const pdfBytes = await pdfDoc.save({ useObjectStreams: false });
             console.log('PDF saved successfully:', {
                 size: pdfBytes.length,
             });
@@ -798,11 +799,10 @@ export default function PDFCanvasViewer({
                     {canEdit && (
                         <canvas
                             ref={canvasRef}
-                            className={`absolute inset-0 rounded-lg ${
-                                drawingMode === 'stamp'
-                                    ? 'cursor-move'
-                                    : 'cursor-crosshair'
-                            }`}
+                            className={`absolute inset-0 rounded-lg ${drawingMode === 'stamp'
+                                ? 'cursor-move'
+                                : 'cursor-crosshair'
+                                }`}
                             style={{
                                 maxWidth: '100%',
                                 height: 'auto',
@@ -873,11 +873,10 @@ export default function PDFCanvasViewer({
                                         : 'outline'
                                 }
                                 size="sm"
-                                className={`px-2 text-xs sm:px-3 sm:text-sm ${
-                                    drawingMode === 'stamp'
-                                        ? 'bg-blue-600 text-white'
-                                        : ''
-                                }`}
+                                className={`px-2 text-xs sm:px-3 sm:text-sm ${drawingMode === 'stamp'
+                                    ? 'bg-blue-600 text-white'
+                                    : ''
+                                    }`}
                                 onClick={() =>
                                     stampImage && setDrawingMode('stamp')
                                 }
