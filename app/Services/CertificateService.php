@@ -87,222 +87,161 @@ class CertificateService
         $template = TemplateSertif::findOrFail($data['templateSertifId']);
         $excelData = $data['excelData'];
         $signedTemplatePath = $this->getSignedTemplatePath($template);
-
-        Log::info('Template and signed path found', [
-            'template_id' => $template->id,
-            'signed_path' => $signedTemplatePath
-        ]);
+        $passphrase = $data['passphrase'] ?? null;
+        $userId = Auth::id();
 
         if (!$signedTemplatePath) {
             throw new Exception('Template belum ditandatangani. Silakan tandatangani template terlebih dahulu.');
         }
 
-        $generatedCertificates = [];
-        $errors = [];
-
-        Log::info('Starting to process excel data', ['count' => count($excelData)]);
-
+        $jobs = [];
         foreach ($excelData as $index => $row) {
-            Log::info('Processing row', [
-                'index' => $index,
-                'row' => $row,
-                'row_count' => count($row),
-                'variable_positions_count' => count($template->variable_positions ?? [])
-            ]);
-
-            try {
-                // Get nomor sertifikat from Excel row berdasarkan urutan variabel
-                // Excel row adalah array dengan urutan sesuai kolom Excel (sesuai urutan variable_positions)
-                $variablePositions = $template->variable_positions ?? [];
-                $nomorSertif = null;
-                $email = null;
-
-                // Cek apakah nomor_sertif dan email ada di variabel atau di akhir (jika ditambahkan otomatis)
-                $hasNomorSertifInVariables = false;
-                $hasEmailInVariables = false;
-                $nomorSertifIndex = null;
-                $emailIndex = null;
-
-                if (!empty($variablePositions)) {
-                    foreach ($variablePositions as $varIndex => $var) {
-                        $varName = strtolower($var['name']);
-                        if (in_array($varName, ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'])) {
-                            $hasNomorSertifInVariables = true;
-                            $nomorSertifIndex = $varIndex;
-                        }
-                        if (in_array($varName, ['email', 'e_mail', 'alamat_email', 'email_peserta'])) {
-                            $hasEmailInVariables = true;
-                            $emailIndex = $varIndex;
-                        }
-                    }
-                }
-
-                // Cari nomor sertifikat - dari variabel atau dari kolom akhir jika ditambahkan otomatis
-                if ($hasNomorSertifInVariables && $nomorSertifIndex !== null) {
-                    // Ambil dari variabel
-                    $nomorSertif = $row[$nomorSertifIndex] ?? null;
-                } elseif (!$hasNomorSertifInVariables && count($row) > count($variablePositions)) {
-                    // Ambil dari kolom akhir (jika ditambahkan otomatis)
-                    // Nomor sertifikat di kolom sebelum email (jika email juga ditambahkan otomatis)
-                    $autoColumnsCount = 0;
-                    if (!$hasEmailInVariables) {
-                        $autoColumnsCount = 2; // nomor_sertif + email
-                    } else {
-                        $autoColumnsCount = 1; // hanya nomor_sertif
-                    }
-                    $nomorSertifIndex = count($variablePositions) + ($autoColumnsCount - 2);
-                    $nomorSertif = $row[$nomorSertifIndex] ?? null;
-                }
-
-                // Cari email - dari variabel atau dari kolom akhir jika ditambahkan otomatis
-                if ($hasEmailInVariables && $emailIndex !== null) {
-                    // Ambil dari variabel
-                    $email = $row[$emailIndex] ?? null;
-                } elseif (!$hasEmailInVariables && count($row) > count($variablePositions)) {
-                    // Ambil dari kolom terakhir (jika ditambahkan otomatis)
-                    $emailIndex = count($row) - 1;
-                    $email = $row[$emailIndex] ?? null;
-                }
-
-                // Validasi: Nomor sertifikat WAJIB
-                if (!$nomorSertif || trim($nomorSertif) === '') {
-                    $errors[] = "Baris " . ($index + 1) . ": Nomor sertifikat wajib diisi";
-                    Log::warning('Nomor sertifikat is required but empty', ['row_index' => $index + 1]);
-                    continue;
-                }
-
-                // Cek duplikasi nomor sertifikat
-                if (\App\Models\Sertifikat::where('nomor_sertif', $nomorSertif)->exists()) {
-                    $errors[] = "Baris " . ($index + 1) . ": Nomor sertifikat $nomorSertif sudah ada";
-                    Log::info('Nomor sertifikat already exists, skipping', ['nomor_sertif' => $nomorSertif]);
-                    continue;
-                }
-
-                Log::info('Generating PDF first before saving to database', [
-                    'nomor_sertif' => $nomorSertif,
-                    'template_id' => $template->id,
-                    'excel_row_count' => count($row)
-                ]);
-
-                // Generate PDF dulu sebelum simpan ke database
-                // Pastikan row Excel sesuai dengan urutan variabel (tidak termasuk nomor_sertif dan email di akhir jika ditambahkan otomatis)
-                $excelRowForOverlay = $row;
-                $autoColumnsCount = 0;
-                if (!$hasNomorSertifInVariables) {
-                    $autoColumnsCount++;
-                }
-                if (!$hasEmailInVariables) {
-                    $autoColumnsCount++;
-                }
-
-                if ($autoColumnsCount > 0 && count($row) > count($variablePositions)) {
-                    // Hapus kolom otomatis (nomor_sertif dan/atau email) dari akhir jika ditambahkan otomatis
-                    $excelRowForOverlay = array_slice($row, 0, count($variablePositions));
-                }
-
-                // Validasi: Email WAJIB untuk pengiriman sertifikat (cek sebelum create sertifikat)
-                if (!$email || trim($email) === '') {
-                    $errors[] = "Baris " . ($index + 1) . ": Email wajib diisi untuk pengiriman sertifikat";
-                    Log::warning('Email is required but empty', ['row_index' => $index + 1]);
-                    continue;
-                }
-
-                // Create sertifikat dulu untuk mendapatkan ID (untuk QR code)
-                // File path akan di-update setelah PDF dibuat
-                $sertifikat = Sertifikat::create([
-                    'templateSertifId' => $template->id,
-                    'nomor_sertif' => $nomorSertif,
-                    'email' => $email,
-                    'file_path' => null // Akan di-update setelah PDF dibuat
-                ]);
-
-                Log::info('Sertifikat created first (for ID)', [
-                    'sertifikat_id' => $sertifikat->id,
-                    'nomor_sertif' => $nomorSertif,
-                    'email' => $email
-                ]);
-
-                $passphrase = $data['passphrase'] ?? null;
-                $certificatePdf = $this->generateIndividualCertificateFromExcel(
-                    $signedTemplatePath,
-                    $template,
-                    $excelRowForOverlay,
-                    $nomorSertif,
-                    $passphrase,
-                    $sertifikat->id // Pass sertifikat ID untuk QR code
-                );
-
-                Log::info('Certificate PDF generated successfully, now updating database', [
-                    'pdf_path' => $certificatePdf,
-                    'file_exists' => file_exists($certificatePdf),
-                    'file_size' => file_exists($certificatePdf) ? filesize($certificatePdf) : 0
-                ]);
-
-                // Pastikan file benar-benar ada sebelum update database
-                if (!file_exists($certificatePdf)) {
-                    // Hapus sertifikat yang sudah dibuat jika PDF gagal
-                    $sertifikat->delete();
-                    throw new Exception('File PDF tidak berhasil dibuat: ' . $certificatePdf);
-                }
-
-                // Update file_path setelah PDF berhasil dibuat
-                $relativePath = str_replace(storage_path('app/'), '', $certificatePdf);
-                $sertifikat->update(['file_path' => $relativePath]);
-
-                Log::info('Sertifikat saved to database', [
-                    'sertifikat_id' => $sertifikat->id,
-                    'file_path' => $relativePath,
-                    'email' => $email,
-                    'file_exists_after_save' => file_exists($certificatePdf)
-                ]);
-
-                Log::info('Sertifikat created successfully', [
-                    'sertifikat_id' => $sertifikat->id,
-                    'email' => $email
-                ]);
-
-                Log::info('Certificate generation completed successfully', [
-                    'sertifikat_id' => $sertifikat->id,
-                    'pdf_path' => $certificatePdf,
-                    'email' => $email
-                ]);
-
-                $generatedCertificates[] = [
-                    'sertifikat' => $sertifikat,
-                    'pdf_path' => $certificatePdf,
-                    'nomor_sertif' => $nomorSertif,
-                    'email' => $email,
-                ];
-            } catch (\Exception $e) {
-                $errorMsg = "Error pada baris " . ($index + 1) . ": " . $e->getMessage();
-                $errors[] = $errorMsg;
-                Log::error('Error processing Excel row', [
-                    'row_index' => $index + 1,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
-                ]);
-            }
+            $jobs[] = new \App\Jobs\GenerateBulkCertificatesJob($template, $row, $userId, $passphrase);
         }
 
-        Log::info('Bulk certificate generation completed', [
-            'total_processed' => count($excelData),
-            'success_count' => count($generatedCertificates),
-            'error_count' => count($errors),
-            'generated_certificates' => array_map(function ($cert) {
-                return [
-                    'id' => $cert['sertifikat']->id ?? 'N/A',
-                    'nomor_sertif' => $cert['nomor_sertif'] ?? 'N/A',
-                    'file_path' => $cert['sertifikat']->file_path ?? 'N/A'
-                ];
-            }, $generatedCertificates)
-        ]);
+        $batch = \Illuminate\Support\Facades\Bus::batch($jobs)
+            ->name('Bulk Certificate Generation - ' . $template->title)
+            ->allowFailures()
+            ->dispatch();
 
         return [
-            'generated' => $generatedCertificates,
-            'errors' => $errors,
-            'success_count' => count($generatedCertificates),
-            'error_count' => count($errors)
+            'batch_id' => $batch->id,
+            'total_jobs' => count($jobs)
         ];
+    }
+
+    public function processSingleExcelRow(TemplateSertif $template, array $row, ?string $passphrase = null): void
+    {
+        $signedTemplatePath = $this->getSignedTemplatePath($template);
+        
+        // Logic extracted from original loop
+        try {
+            // Get nomor sertifikat from Excel row berdasarkan urutan variabel
+            // Excel row adalah array dengan urutan sesuai kolom Excel (sesuai urutan variable_positions)
+            $variablePositions = $template->variable_positions ?? [];
+            $nomorSertif = null;
+            $email = null;
+
+            // Cek apakah nomor_sertif dan email ada di variabel atau di akhir (jika ditambahkan otomatis)
+            $hasNomorSertifInVariables = false;
+            $hasEmailInVariables = false;
+            $nomorSertifIndex = null;
+            $emailIndex = null;
+
+            if (!empty($variablePositions)) {
+                foreach ($variablePositions as $varIndex => $var) {
+                    $varName = strtolower($var['name']);
+                    if (in_array($varName, ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'])) {
+                        $hasNomorSertifInVariables = true;
+                        $nomorSertifIndex = $varIndex;
+                    }
+                    if (in_array($varName, ['email', 'e_mail', 'alamat_email', 'email_peserta'])) {
+                        $hasEmailInVariables = true;
+                        $emailIndex = $varIndex;
+                    }
+                }
+            }
+
+            // Cari nomor sertifikat - dari variabel atau dari kolom akhir jika ditambahkan otomatis
+            if ($hasNomorSertifInVariables && $nomorSertifIndex !== null) {
+                // Ambil dari variabel
+                $nomorSertif = $row[$nomorSertifIndex] ?? null;
+            } elseif (!$hasNomorSertifInVariables && count($row) > count($variablePositions)) {
+                // Ambil dari kolom akhir (jika ditambahkan otomatis)
+                // Nomor sertifikat di kolom sebelum email (jika email juga ditambahkan otomatis)
+                $autoColumnsCount = 0;
+                if (!$hasEmailInVariables) {
+                    $autoColumnsCount = 2; // nomor_sertif + email
+                } else {
+                    $autoColumnsCount = 1; // hanya nomor_sertif
+                }
+                $nomorSertifIndex = count($variablePositions) + ($autoColumnsCount - 2);
+                $nomorSertif = $row[$nomorSertifIndex] ?? null;
+            }
+
+            // Cari email - dari variabel atau dari kolom akhir jika ditambahkan otomatis
+            if ($hasEmailInVariables && $emailIndex !== null) {
+                // Ambil dari variabel
+                $email = $row[$emailIndex] ?? null;
+            } elseif (!$hasEmailInVariables && count($row) > count($variablePositions)) {
+                // Ambil dari kolom terakhir (jika ditambahkan otomatis)
+                $emailIndex = count($row) - 1;
+                $email = $row[$emailIndex] ?? null;
+            }
+
+            // Validasi: Nomor sertifikat WAJIB
+            if (!$nomorSertif || trim($nomorSertif) === '') {
+                throw new Exception("Nomor sertifikat wajib diisi");
+            }
+
+            // Cek duplikasi nomor sertifikat
+            if (\App\Models\Sertifikat::where('nomor_sertif', $nomorSertif)->exists()) {
+                Log::info('Nomor sertifikat already exists, skipping', ['nomor_sertif' => $nomorSertif]);
+                return; // Skip silently or throw exception depending on requirement
+            }
+
+            // Generate PDF dulu sebelum simpan ke database
+            // Pastikan row Excel sesuai dengan urutan variabel (tidak termasuk nomor_sertif dan email di akhir jika ditambahkan otomatis)
+            $excelRowForOverlay = $row;
+            $autoColumnsCount = 0;
+            if (!$hasNomorSertifInVariables) {
+                $autoColumnsCount++;
+            }
+            if (!$hasEmailInVariables) {
+                $autoColumnsCount++;
+            }
+
+            if ($autoColumnsCount > 0 && count($row) > count($variablePositions)) {
+                // Hapus kolom otomatis (nomor_sertif dan/atau email) dari akhir jika ditambahkan otomatis
+                $excelRowForOverlay = array_slice($row, 0, count($variablePositions));
+            }
+
+            // Validasi: Email WAJIB untuk pengiriman sertifikat (cek sebelum create sertifikat)
+            if (!$email || trim($email) === '') {
+                throw new Exception("Email wajib diisi untuk pengiriman sertifikat");
+            }
+
+            // Create sertifikat dulu untuk mendapatkan ID (untuk QR code)
+            // File path akan di-update setelah PDF dibuat
+            $sertifikat = Sertifikat::create([
+                'templateSertifId' => $template->id,
+                'nomor_sertif' => $nomorSertif,
+                'email' => $email,
+                'file_path' => null // Akan di-update setelah PDF dibuat
+            ]);
+
+            $certificatePdf = $this->generateIndividualCertificateFromExcel(
+                $signedTemplatePath,
+                $template,
+                $excelRowForOverlay,
+                $nomorSertif,
+                $passphrase,
+                $sertifikat->id // Pass sertifikat ID untuk QR code
+            );
+
+            // Pastikan file benar-benar ada sebelum update database
+            if (!file_exists($certificatePdf)) {
+                // Hapus sertifikat yang sudah dibuat jika PDF gagal
+                $sertifikat->delete();
+                throw new Exception('File PDF tidak berhasil dibuat: ' . $certificatePdf);
+            }
+
+            // Update file_path setelah PDF berhasil dibuat
+            $relativePath = str_replace(storage_path('app/'), '', $certificatePdf);
+            $sertifikat->update(['file_path' => $relativePath]);
+
+            Log::info('Sertifikat created successfully via Job', [
+                'sertifikat_id' => $sertifikat->id,
+                'email' => $email
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error processing Excel row in Job', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
     }
 
     public function signTemplate(TemplateSertif $template, User $signer, array $signatureData): string

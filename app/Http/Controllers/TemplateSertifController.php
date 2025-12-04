@@ -349,10 +349,10 @@ class TemplateSertifController extends Controller
 
     public function mapVariables(TemplateSertif $template)
     {
-        // Template harus sudah ditandatangani dan disetujui
-        if (!$template->signed_template_path) {
+        // Template harus sudah ditandatangani oleh SEMUA penanda tangan
+        if (!$template->isCompleted()) {
             return redirect()->route('templates.show', $template->id)
-                ->with('error', 'Template harus ditandatangani terlebih dahulu sebelum dapat mapping variabel.');
+                ->with('error', 'Template harus ditandatangani oleh semua pihak terlebih dahulu sebelum dapat mapping variabel.');
         }
 
         if ($template->review->status !== 'approved') {
@@ -368,6 +368,11 @@ class TemplateSertifController extends Controller
 
     public function saveVariablePositions(Request $request, TemplateSertif $template)
     {
+        // Template harus sudah ditandatangani oleh SEMUA penanda tangan
+        if (!$template->isCompleted()) {
+            return back()->with('error', 'Template harus ditandatangani oleh semua pihak terlebih dahulu.');
+        }
+
         $request->validate([
             'variable_positions' => 'required|array',
             'variable_positions.*.name' => 'required|string|max:255',

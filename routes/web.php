@@ -48,6 +48,8 @@ Route::middleware(['auth'])->group(function () {
     // Certificate generation and download
     Route::post('certificates/generate-bulk', [App\Http\Controllers\SertifikatController::class, 'generateBulkCertificates'])->name('certificates.generate-bulk');
     Route::post('certificates/generate-from-excel', [App\Http\Controllers\SertifikatController::class, 'generateBulkFromExcel'])->name('certificates.generate-from-excel');
+    Route::get('certificates/bulk/progress/{batchId}', [App\Http\Controllers\SertifikatController::class, 'bulkProgress'])->name('certificates.bulk.progress');
+    Route::get('certificates/batch-status/{batchId}', [App\Http\Controllers\SertifikatController::class, 'checkBatchStatus'])->name('certificates.batch.status');
     Route::get('certificates/{certificate}/download', [App\Http\Controllers\SertifikatController::class, 'downloadCertificate'])->name('certificates.download');
     Route::get('certificates/{certificate}/view', [App\Http\Controllers\SertifikatController::class, 'viewCertificate'])->name('certificates.view');
     Route::post('certificates/download-bulk', [App\Http\Controllers\SertifikatController::class, 'downloadBulkCertificates'])->name('certificates.download-bulk');

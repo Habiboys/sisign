@@ -49,6 +49,7 @@ interface Props {
 export default function TemplatesMapVariables({ template, user }: Props) {
     const { success, error } = useToast();
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
+    const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [pdfUrl, setPdfUrl] = useState<string>('');
@@ -73,7 +74,7 @@ export default function TemplatesMapVariables({ template, user }: Props) {
     }, [template]);
 
     const loadPDF = useCallback(async () => {
-        if (!pdfUrl || !pdfCanvasRef.current) return;
+        if (!pdfUrl || !pdfCanvasRef.current || !overlayCanvasRef.current) return;
 
         try {
             const pdfjsLib = await import('pdfjs-dist');
@@ -86,14 +87,17 @@ export default function TemplatesMapVariables({ template, user }: Props) {
             const pageData = await pdf.getPage(currentPage);
             const viewport = pageData.getViewport({ scale: 1.5 });
 
-            const canvas = pdfCanvasRef.current;
-            if (!canvas) return;
+            const pdfCanvas = pdfCanvasRef.current;
+            const overlayCanvas = overlayCanvasRef.current;
 
-            const ctx = canvas.getContext('2d');
+            // Set dimensions for both canvases
+            pdfCanvas.width = viewport.width;
+            pdfCanvas.height = viewport.height;
+            overlayCanvas.width = viewport.width;
+            overlayCanvas.height = viewport.height;
+
+            const ctx = pdfCanvas.getContext('2d');
             if (!ctx) return;
-
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
 
             const renderContext = {
                 canvasContext: ctx,
@@ -102,44 +106,67 @@ export default function TemplatesMapVariables({ template, user }: Props) {
 
             await pageData.render(renderContext).promise;
 
-            // Draw existing variable markers
-            drawVariableMarkers(ctx, viewport);
+            // Draw variables on overlay
+            drawVariables();
         } catch (err) {
             console.error('Error loading PDF:', err);
             error('Gagal memuat PDF template');
         }
-    }, [pdfUrl, currentPage, variables]);
+    }, [pdfUrl, currentPage]); // Removed variables dependency
 
-    const drawVariableMarkers = (
-        ctx: CanvasRenderingContext2D,
-        viewport: any
-    ) => {
-        // Draw markers for variables on current page
+    const drawVariables = useCallback(() => {
+        const canvas = overlayCanvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Clear overlay
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw markers
         variables.forEach((variable, index) => {
-            const scaleX = viewport.width / viewport.width;
-            const scaleY = viewport.height / viewport.height;
-            const x = variable.x * scaleX;
-            const y = variable.y * scaleY;
+            // Scale is 1 because canvas width matches viewport width set in loadPDF
+            // But we need to be careful if variables.x/y were saved with a different scale?
+            // Assuming variables.x/y are in canvas coordinates (which they are from handleCanvasClick)
+
+            // If using percentage, recalculate x/y
+            let x = variable.x;
+            let y = variable.y;
+
+            if (variable.x_pct !== undefined && variable.y_pct !== undefined) {
+                x = variable.x_pct * canvas.width;
+                y = variable.y_pct * canvas.height;
+            }
 
             // Draw marker circle
-            ctx.fillStyle = index === selectedVariable ? '#3b82f6' : '#ef4444';
+            ctx.fillStyle = index === selectedVariable ? 'rgba(59, 130, 246, 0.8)' : 'rgba(239, 68, 68, 0.8)';
             ctx.beginPath();
             ctx.arc(x, y, 8, 0, 2 * Math.PI);
             ctx.fill();
 
             // Draw label
             ctx.fillStyle = '#000';
-            ctx.font = '12px Arial';
-            ctx.fillText(variable.name, x + 12, y + 4);
+
+            const fontSize = (variable.fontSize || 12) * 1.5;
+            const fontFamily = variable.fontFamily || 'Arial';
+            ctx.font = `${fontSize}px ${fontFamily}`;
+
+            ctx.fillText(variable.name, x + 12, y + (fontSize / 3));
         });
-    };
+    }, [variables, selectedVariable]);
+
+    // Re-draw variables when they change
+    useEffect(() => {
+        drawVariables();
+    }, [drawVariables]);
 
     useEffect(() => {
         loadPDF();
     }, [loadPDF]);
 
     const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-        const canvas = pdfCanvasRef.current;
+        const canvas = overlayCanvasRef.current;
         if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
@@ -149,14 +176,18 @@ export default function TemplatesMapVariables({ template, user }: Props) {
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
 
+        // Calculate percentages
+        const x_pct = x / canvas.width;
+        const y_pct = y / canvas.height;
+
         if (isAddingVariable && newVariableName.trim()) {
             // Add new variable at clicked position
             const newVariable: VariablePosition = {
                 name: newVariableName.trim(),
                 x: x,
                 y: y,
-                x_pct: x / canvas.width,
-                y_pct: y / canvas.height,
+                x_pct: x_pct,
+                y_pct: y_pct,
                 fontSize: 12,
                 fontFamily: 'Arial',
                 alignment: 'C',
@@ -171,12 +202,35 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                 ...updated[selectedVariable],
                 x: x,
                 y: y,
-                x_pct: x / canvas.width,
-                y_pct: y / canvas.height,
+                x_pct: x_pct,
+                y_pct: y_pct,
             };
             setVariables(updated);
             setSelectedVariable(null);
         }
+    };
+
+    const addStandardVariable = (name: string) => {
+        const canvas = overlayCanvasRef.current;
+        if (!canvas) return;
+
+        // Default position: Center of canvas
+        const x = canvas.width / 2;
+        const y = canvas.height / 2;
+        const x_pct = 0.5;
+        const y_pct = 0.5;
+
+        const newVariable: VariablePosition = {
+            name: name,
+            x: x,
+            y: y,
+            x_pct: x_pct,
+            y_pct: y_pct,
+            fontSize: 12,
+            fontFamily: 'Arial',
+            alignment: 'C',
+        };
+        setVariables([...variables, newVariable]);
     };
 
     const handleAddVariable = () => {
@@ -199,6 +253,8 @@ export default function TemplatesMapVariables({ template, user }: Props) {
         }));
 
         post(`/templates/${template.id}/save-variable-positions`, {
+            preserveState: true,
+            preserveScroll: true,
             onSuccess: () => {
                 success('Posisi variabel berhasil disimpan');
                 // Auto download template Excel setelah save
@@ -302,12 +358,18 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                         </div>
                                     </div>
                                     <div className="relative border border-gray-300 rounded-lg overflow-auto bg-gray-50">
-                                        <canvas
-                                            ref={pdfCanvasRef}
-                                            onClick={handleCanvasClick}
-                                            className="cursor-crosshair"
-                                            style={{ maxWidth: '100%', height: 'auto' }}
-                                        />
+                                        <div className="relative inline-block">
+                                            <canvas
+                                                ref={pdfCanvasRef}
+                                                style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+                                            />
+                                            <canvas
+                                                ref={overlayCanvasRef}
+                                                onClick={handleCanvasClick}
+                                                className="cursor-crosshair absolute top-0 left-0"
+                                                style={{ maxWidth: '100%', height: 'auto' }}
+                                            />
+                                        </div>
                                     </div>
                                     <p className="text-sm text-gray-500">
                                         {isAddingVariable
@@ -329,6 +391,24 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 {/* Add New Variable */}
+                                <div className="space-y-2">
+                                    <Label>Variabel Standar</Label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {['nomor_sertif', 'nama_lengkap', 'tanggal_terbit', 'jabatan', 'departemen'].map((varName) => (
+                                            <Button
+                                                key={varName}
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => addStandardVariable(varName)}
+                                                className="text-xs"
+                                                disabled={variables.some(v => v.name === varName)}
+                                            >
+                                                + {varName.replace('_', ' ')}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                </div>
+
                                 <div className="space-y-2">
                                     <Label>Nama Variabel Baru</Label>
                                     <div className="flex gap-2">

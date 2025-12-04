@@ -123,6 +123,9 @@ class SertifikatController extends Controller
             ->whereNotNull('signed_template_path')
             ->with('review')
             ->get()
+            ->filter(function ($template) {
+                return $template->isCompleted();
+            })
             ->map(function ($template) {
                 return [
                     'id' => $template->id,
@@ -132,7 +135,8 @@ class SertifikatController extends Controller
                     'variable_positions' => $template->variable_positions,
                     'has_variables_mapped' => !empty($template->variable_positions),
                 ];
-            });
+            })
+            ->values(); // Reset keys after filter
 
         Log::info('Templates found for bulk create', [
             'count' => $templates->count(),
@@ -510,7 +514,7 @@ class SertifikatController extends Controller
             $request->validate([
                 'templateSertifId' => 'required|exists:template_sertif,id',
                 'excel_file' => 'required|file|mimes:xlsx,xls|max:10240',
-                'passphrase' => 'required|string'
+                'passphrase' => 'nullable|string'
             ]);
 
             Log::info('Validation passed successfully');
@@ -557,18 +561,14 @@ class SertifikatController extends Controller
                 'passphrase' => $request->passphrase
             ]);
 
-            $message = "Berhasil generate {$result['success_count']} sertifikat";
-            if (!empty($result['errors'])) {
-                $message .= ". Error: " . implode(', ', $result['errors']);
-            }
-
-            Log::info('Certificate generation completed successfully', [
-                'success_count' => $result['success_count'],
-                'error_count' => count($result['errors']),
-                'message' => $message
+            Log::info('Batch certificate generation started', [
+                'batch_id' => $result['batch_id'],
+                'total_jobs' => $result['total_jobs']
             ]);
 
-            return redirect()->route('certificates.index')->with('success', $message);
+            // Redirect to progress page
+            return redirect()->route('certificates.bulk.progress', ['batchId' => $result['batch_id']]);
+
         } catch (\Exception $e) {
             Log::error('Failed to generate certificates from Excel', [
                 'user_id' => Auth::id(),
@@ -580,6 +580,32 @@ class SertifikatController extends Controller
             return redirect()->route('certificates.bulk.create')
                 ->with('error', 'Gagal generate sertifikat: ' . $e->getMessage());
         }
+    }
+
+    public function bulkProgress($batchId)
+    {
+        return Inertia::render('Certificates/BulkProgress', [
+            'batchId' => $batchId
+        ]);
+    }
+
+    public function checkBatchStatus($batchId)
+    {
+        $batch = \Illuminate\Support\Facades\Bus::findBatch($batchId);
+
+        if (!$batch) {
+            return response()->json(['error' => 'Batch not found'], 404);
+        }
+
+        return response()->json([
+            'id' => $batch->id,
+            'progress' => $batch->progress(),
+            'finished' => $batch->finished(),
+            'cancelled' => $batch->cancelled(),
+            'failedJobs' => $batch->failedJobs,
+            'processedJobs' => $batch->processedJobs(),
+            'totalJobs' => $batch->totalJobs,
+        ]);
     }
 
     public function sendCertificateEmails(Request $request)
