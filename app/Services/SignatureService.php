@@ -165,11 +165,9 @@ class SignatureService
             // Get ALL signatures for this page
             $pageSignatures = $signatures->where('page_number', $pageNo);
 
-            // Apply ONLY physical signatures to the page (digital signatures are for verification only)
+            // Apply signatures to the page
             foreach ($pageSignatures as $signature) {
-                if ($signature->type === 'physical') {
-                    $this->applySignatureToPage($pdf, $signature, $size);
-                }
+                $this->applySignatureToPage($pdf, $signature, $size);
             }
 
             // Add QR code verification only on the last page if the document is fully signed
@@ -448,6 +446,7 @@ class SignatureService
             ->select([
                 'id',
                 'type',
+                'userId',
                 'position_x',
                 'position_y',
                 'width',

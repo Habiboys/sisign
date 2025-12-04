@@ -28,6 +28,13 @@ interface Signature {
     };
 }
 
+interface Signer {
+    user_id: string;
+    name: string;
+    is_signed: boolean;
+    sign_order: number;
+}
+
 interface Document {
     id: string;
     title: string;
@@ -39,6 +46,7 @@ interface Document {
 interface VerificationProps {
     document: Document;
     signatures: Signature[];
+    signers: Signer[];
     verification_status: 'signed' | 'unsigned';
     verified_at: string;
     success: boolean;
@@ -48,6 +56,7 @@ interface VerificationProps {
 export default function VerificationShow({
     document,
     signatures,
+    signers,
     verification_status,
     verified_at,
     success,
@@ -137,21 +146,77 @@ export default function VerificationShow({
                                 Status
                             </label>
                             <span
-                                className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
-                                    document.status === 'approved'
-                                        ? 'bg-green-100 text-green-800'
-                                        : document.status === 'rejected'
-                                          ? 'bg-red-100 text-red-800'
-                                          : 'bg-yellow-100 text-yellow-800'
-                                }`}
+                                className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${document.status === 'approved'
+                                    ? 'bg-green-100 text-green-800'
+                                    : document.status === 'rejected'
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-yellow-100 text-yellow-800'
+                                    }`}
                             >
                                 {document.status === 'approved'
                                     ? 'Disetujui'
                                     : document.status === 'rejected'
-                                      ? 'Ditolak'
-                                      : 'Menunggu'}
+                                        ? 'Ditolak'
+                                        : 'Menunggu'}
                             </span>
                         </div>
+                    </div>
+                </div>
+
+                {/* Signers Status Card */}
+                <div className="mb-6 rounded-lg bg-white p-6 shadow-md">
+                    <div className="mb-4 flex items-center">
+                        <User className="mr-3 h-6 w-6 text-purple-600" />
+                        <h2 className="text-xl font-semibold text-gray-900">
+                            Status Penandatangan
+                        </h2>
+                    </div>
+
+                    <div className="space-y-4">
+                        {signers && signers.length > 0 ? (
+                            signers.map((signer) => (
+                                <div
+                                    key={signer.user_id}
+                                    className="flex items-center justify-between rounded-lg border border-gray-200 p-4"
+                                >
+                                    <div className="flex items-center">
+                                        <div
+                                            className={`mr-3 flex h-8 w-8 items-center justify-center rounded-full ${signer.is_signed
+                                                ? 'bg-green-100 text-green-600'
+                                                : 'bg-gray-100 text-gray-500'
+                                                }`}
+                                        >
+                                            <User className="h-4 w-4" />
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-gray-900">
+                                                {signer.name}
+                                            </p>
+                                            <p className="text-sm text-gray-500">
+                                                Penandatangan Ke-{signer.sign_order}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        {signer.is_signed ? (
+                                            <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                                                <CheckCircle className="mr-1 h-3 w-3" />
+                                                Sudah TTD
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+                                                <XCircle className="mr-1 h-3 w-3" />
+                                                Belum TTD
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <p className="text-gray-500">
+                                Tidak ada data penandatangan.
+                            </p>
+                        )}
                     </div>
                 </div>
 
@@ -174,12 +239,11 @@ export default function VerificationShow({
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center">
                                             <div
-                                                className={`mr-3 h-3 w-3 rounded-full ${
-                                                    signature.type ===
+                                                className={`mr-3 h-3 w-3 rounded-full ${signature.type ===
                                                     'physical'
-                                                        ? 'bg-blue-500'
-                                                        : 'bg-green-500'
-                                                }`}
+                                                    ? 'bg-blue-500'
+                                                    : 'bg-green-500'
+                                                    }`}
                                             ></div>
                                             <div>
                                                 <p className="font-medium text-gray-900">
@@ -187,7 +251,7 @@ export default function VerificationShow({
                                                 </p>
                                                 <p className="text-sm text-gray-500">
                                                     {signature.type ===
-                                                    'physical'
+                                                        'physical'
                                                         ? 'Tanda Tangan Fisik'
                                                         : 'Tanda Tangan Digital'}
                                                 </p>
@@ -233,11 +297,10 @@ export default function VerificationShow({
                                 Status Verifikasi
                             </label>
                             <p
-                                className={`text-lg font-medium ${
-                                    isVerified
-                                        ? 'text-green-600'
-                                        : 'text-red-600'
-                                }`}
+                                className={`text-lg font-medium ${isVerified
+                                    ? 'text-green-600'
+                                    : 'text-red-600'
+                                    }`}
                             >
                                 {isVerified
                                     ? '✓ Terverifikasi'

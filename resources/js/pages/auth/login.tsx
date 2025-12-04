@@ -6,8 +6,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AuthLayout from '@/layouts/auth-layout';
-import { register } from '@/routes';
-import { request } from '@/routes/password';
 import { Form, Head } from '@inertiajs/react';
 import { LoaderCircle, Lock, Mail } from 'lucide-react';
 
@@ -66,7 +64,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                                     </Label>
                                     {canResetPassword && (
                                         <TextLink
-                                            href={request()}
+                                            href="/forgot-password"
                                             className="ml-auto text-sm text-blue-600 hover:text-blue-800"
                                             tabIndex={5}
                                         >
@@ -118,7 +116,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                         <div className="text-center text-sm text-muted-foreground">
                             Belum punya akun?{' '}
                             <TextLink
-                                href={register()}
+                                href="/register"
                                 tabIndex={5}
                                 className="text-blue-600 hover:text-blue-800"
                             >

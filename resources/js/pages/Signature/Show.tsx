@@ -23,6 +23,8 @@ interface Document {
     userId: string;
     to: string;
     user: User;
+    signers: any[];
+    signed_file?: string;
 }
 
 interface SignaturePosition {
@@ -43,6 +45,7 @@ interface SignDocumentProps {
     existingSignatures: SignaturePosition[];
     canSign: boolean;
     hasEncryptionKeys: boolean;
+    user: User;
 }
 
 export default function SignDocument({
@@ -50,6 +53,7 @@ export default function SignDocument({
     existingSignatures,
     canSign,
     hasEncryptionKeys,
+    user,
 }: SignDocumentProps) {
     const [currentPage, setCurrentPage] = useState(1);
     const [signatures, setSignatures] =
@@ -199,8 +203,8 @@ export default function SignDocument({
                 console.error('Position update errors:', errors);
                 error(
                     'Gagal memperbarui posisi tanda tangan: ' +
-                        (Object.values(errors)[0] ||
-                            'Terjadi kesalahan yang tidak diketahui'),
+                    (Object.values(errors)[0] ||
+                        'Terjadi kesalahan yang tidak diketahui'),
                 );
             },
         });
@@ -227,8 +231,8 @@ export default function SignDocument({
             onError: (errors) => {
                 error(
                     'Gagal menghapus tanda tangan: ' +
-                        (Object.values(errors)[0] ||
-                            'Terjadi kesalahan yang tidak diketahui'),
+                    (Object.values(errors)[0] ||
+                        'Terjadi kesalahan yang tidak diketahui'),
                 );
             },
         });
@@ -261,10 +265,18 @@ export default function SignDocument({
                             </CardHeader>
                             <CardContent className="p-2 sm:p-6">
                                 <PDFCanvasViewer
-                                    pdfUrl={`/documents/${document.id}/pdf`}
+                                    pdfUrl={
+                                        document.signed_file
+                                            ? `/documents/${document.id}/signed-pdf/preview`
+                                            : `/documents/${document.id}/pdf`
+                                    }
                                     onSave={handleSignatureComplete}
                                     canEdit={canSign}
                                     documentId={document.id}
+                                    generateQRCode={
+                                        (document.signers?.filter((s) => s.is_signed).length || 0) + 1 ===
+                                        (document.signers?.length || 0)
+                                    }
                                 />
                             </CardContent>
                         </Card>
@@ -301,7 +313,7 @@ export default function SignDocument({
                                         Total Signatures
                                     </label>
                                     <p className="text-xs sm:text-sm">
-                                        {signatures.length}
+                                        {signatures.filter(s => s.type === 'physical').length}
                                     </p>
                                 </div>
                             </CardContent>
@@ -321,7 +333,7 @@ export default function SignDocument({
                                     </p>
                                 ) : (
                                     <div className="space-y-3">
-                                        {signatures.map((signature) => (
+                                        {signatures.filter(s => s.type === 'physical').map((signature) => (
                                             <div
                                                 key={signature.id}
                                                 className="rounded-lg border p-2 sm:p-3"
@@ -335,7 +347,7 @@ export default function SignDocument({
                                                         </p>
                                                         <p className="text-xs text-gray-500">
                                                             {signature.type ===
-                                                            'physical'
+                                                                'physical'
                                                                 ? '✍️ Physical'
                                                                 : '🔐 Digital'}
                                                         </p>
@@ -345,20 +357,22 @@ export default function SignDocument({
                                                             Page{' '}
                                                             {signature.page}
                                                         </span>
-                                                        {canSign && (
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() =>
-                                                                    handleDeleteSignature(
-                                                                        signature.id,
-                                                                    )
-                                                                }
-                                                                className="h-6 w-6 p-0 text-red-600 hover:bg-red-50 hover:text-red-700"
-                                                            >
-                                                                <Trash2 className="h-3 w-3" />
-                                                            </Button>
-                                                        )}
+                                                        {canSign &&
+                                                            signature.user?.id ===
+                                                            user.id && (
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        handleDeleteSignature(
+                                                                            signature.id,
+                                                                        )
+                                                                    }
+                                                                    className="h-6 w-6 p-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                                >
+                                                                    <Trash2 className="h-3 w-3" />
+                                                                </Button>
+                                                            )}
                                                     </div>
                                                 </div>
                                                 <p className="mt-1 text-xs text-gray-400">
@@ -382,8 +396,8 @@ export default function SignDocument({
                                 {!hasEncryptionKeys && (
                                     <Button
                                         onClick={() =>
-                                            (window.location.href =
-                                                '/encryption')
+                                        (window.location.href =
+                                            '/encryption')
                                         }
                                         className="w-full"
                                         variant="secondary"

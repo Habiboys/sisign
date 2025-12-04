@@ -19,6 +19,7 @@ interface PDFCanvasViewerProps {
     canEdit?: boolean;
     documentId: string;
     isTemplate?: boolean; // Add flag to differentiate template from document
+    generateQRCode?: boolean;
 }
 
 export default function PDFCanvasViewer({
@@ -27,6 +28,7 @@ export default function PDFCanvasViewer({
     canEdit = false,
     documentId,
     isTemplate = false,
+    generateQRCode,
 }: PDFCanvasViewerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -554,7 +556,10 @@ export default function PDFCanvasViewer({
             }
 
             // Embed QR code if exists (only for documents, templates are handled by backend)
-            if (!isTemplate) {
+            // Use generateQRCode prop if provided, otherwise fallback to !isTemplate
+            const shouldGenerateQR = generateQRCode !== undefined ? generateQRCode : !isTemplate;
+
+            if (shouldGenerateQR) {
                 // Generate QR code image with verification link
                 const baseUrl = window.location.origin;
                 const qrCodeData = `${baseUrl}/verify-document/${documentId}`;

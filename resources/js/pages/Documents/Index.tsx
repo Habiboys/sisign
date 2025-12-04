@@ -72,6 +72,12 @@ interface Document {
     toUser: User;
     review: Review;
     signatures: Signature[];
+    signers: {
+        id: string;
+        user_id: string;
+        is_signed: boolean;
+        sign_order: number;
+    }[];
 }
 
 interface Props {
@@ -87,13 +93,19 @@ export default function DocumentsIndex({ documents, user }: Props) {
     const [deletingId, setDeletingId] = useState<string | null>(null);
 
     // Helper function to check if document is truly signed
-    const isDocumentSigned = (document: Document) => {
-        // Double check: must have signed_file AND signatures
+    // Helper function to check if document has a signed file (at least one signature)
+    const hasSignedFile = (document: Document) => {
         return (
             document.signed_file &&
             document.signatures &&
             document.signatures.length > 0
         );
+    };
+
+    // Helper function to check if document is fully signed by all required signers
+    const isFullySigned = (document: Document) => {
+        if (!document.signers || document.signers.length === 0) return false;
+        return document.signers.every((signer) => signer.is_signed);
     };
 
     const getStatusBadge = (status: string) => {
@@ -203,19 +215,25 @@ export default function DocumentsIndex({ documents, user }: Props) {
                                         <TableCell>
                                             <Badge
                                                 variant={
-                                                    isDocumentSigned(document)
+                                                    isFullySigned(document)
                                                         ? 'default'
-                                                        : 'secondary'
+                                                        : hasSignedFile(document)
+                                                            ? 'secondary'
+                                                            : 'outline'
                                                 }
                                                 className={
-                                                    isDocumentSigned(document)
+                                                    isFullySigned(document)
                                                         ? 'bg-green-100 text-green-800'
-                                                        : 'bg-gray-100 text-gray-800'
+                                                        : hasSignedFile(document)
+                                                            ? 'bg-yellow-100 text-yellow-800'
+                                                            : 'bg-gray-100 text-gray-800'
                                                 }
                                             >
-                                                {isDocumentSigned(document)
+                                                {isFullySigned(document)
                                                     ? 'Sudah TTD'
-                                                    : 'Belum TTD'}
+                                                    : hasSignedFile(document)
+                                                        ? 'Sebagian TTD'
+                                                        : 'Belum TTD'}
                                             </Badge>
                                         </TableCell>
                                         <TableCell>
@@ -280,7 +298,7 @@ export default function DocumentsIndex({ documents, user }: Props) {
                                                                 }
                                                             >
                                                                 {deletingId ===
-                                                                document.id
+                                                                    document.id
                                                                     ? 'Menghapus...'
                                                                     : 'Hapus'}
                                                             </AlertDialogAction>

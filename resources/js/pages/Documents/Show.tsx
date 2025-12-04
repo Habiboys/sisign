@@ -89,9 +89,8 @@ export default function DocumentsShow({ document, user }: Props) {
     const deleteModal = useModal();
     const [deleteSignatureId, setDeleteSignatureId] = useState<string>('');
 
-    // Helper function to check if document is truly signed
-    const isDocumentSigned = () => {
-        // Double check: must have signed_file AND signatures
+    // Helper function to check if document has a signed file (at least one signature)
+    const hasSignedFile = () => {
         return (
             document.signed_file &&
             document.signatures &&
@@ -99,13 +98,20 @@ export default function DocumentsShow({ document, user }: Props) {
         );
     };
 
+    // Helper function to check if document is fully signed by all required signers
+    const isFullySigned = () => {
+        if (!document.signers || document.signers.length === 0) return false;
+        return document.signers.every((signer) => signer.is_signed);
+    };
+
     // Debug log
     console.log('Document data:', {
         id: document.id,
         signed_file: document.signed_file,
         signatures_count: document.signatures?.length || 0,
-        is_truly_signed: isDocumentSigned(),
-        iframe_src: isDocumentSigned()
+        is_truly_signed: hasSignedFile(),
+        is_fully_signed: isFullySigned(),
+        iframe_src: hasSignedFile()
             ? `/storage/${document.signed_file}`
             : `/documents/${document.id}/pdf`,
     });
@@ -175,7 +181,7 @@ export default function DocumentsShow({ document, user }: Props) {
     //aa
     const confirmDeleteSignature = () => {
         router.delete(`/signatures/${deleteSignatureId}`, {
-            onSuccess: (page) => {
+            onSuccess: (page: any) => {
                 // Check if there's a success message from backend
                 if (page.props.flash?.success) {
                     success(page.props.flash.success);
@@ -216,7 +222,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                 Review Dokumen
                             </Button>
                         )}
-                        {canSign && !isDocumentSigned() && (
+                        {canSign && (
                             <Button
                                 onClick={() =>
                                     router.visit(
@@ -249,7 +255,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                 >
                                     <iframe
                                         src={
-                                            isDocumentSigned()
+                                            hasSignedFile()
                                                 ? `/documents/${document.id}/signed-pdf/preview`
                                                 : `/documents/${document.id}/pdf`
                                         }
@@ -340,19 +346,25 @@ export default function DocumentsShow({ document, user }: Props) {
                                         </span>
                                         <Badge
                                             variant={
-                                                isDocumentSigned()
+                                                isFullySigned()
                                                     ? 'default'
-                                                    : 'secondary'
+                                                    : hasSignedFile()
+                                                        ? 'secondary'
+                                                        : 'outline'
                                             }
                                             className={
-                                                isDocumentSigned()
+                                                isFullySigned()
                                                     ? 'bg-green-100 text-green-800'
-                                                    : 'bg-gray-100 text-gray-800'
+                                                    : hasSignedFile()
+                                                        ? 'bg-yellow-100 text-yellow-800'
+                                                        : 'bg-gray-100 text-gray-800'
                                             }
                                         >
-                                            {isDocumentSigned()
+                                            {isFullySigned()
                                                 ? 'Sudah Ditandatangani'
-                                                : 'Belum Ditandatangani'}
+                                                : hasSignedFile()
+                                                    ? 'Sebagian Ditandatangani'
+                                                    : 'Belum Ditandatangani'}
                                         </Badge>
                                     </div>
 
@@ -383,7 +395,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                     <Button
                                         onClick={() =>
                                             window.open(
-                                                isDocumentSigned()
+                                                hasSignedFile()
                                                     ? `/documents/${document.id}/signed-pdf`
                                                     : `/storage/documents/${document.files}`,
                                                 '_blank',
@@ -392,7 +404,7 @@ export default function DocumentsShow({ document, user }: Props) {
                                         className="w-full bg-blue-600 hover:bg-blue-700"
                                     >
                                         <Download className="mr-2 h-4 w-4" />
-                                        {isDocumentSigned()
+                                        {hasSignedFile()
                                             ? 'Download Dokumen (Signed)'
                                             : 'Download Dokumen'}
                                     </Button>
@@ -517,75 +529,75 @@ export default function DocumentsShow({ document, user }: Props) {
                                 </CardHeader>
                                 <CardContent>
                                     <div className="space-y-4">
-                                        {document.signatures.map(
-                                            (signature) => (
-                                                <div
-                                                    key={signature.id}
-                                                    className="flex items-center justify-between rounded-lg border p-4"
-                                                >
-                                                    <div className="flex items-center space-x-4">
-                                                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100">
-                                                            <User className="h-5 w-5" />
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-medium">
-                                                                {
-                                                                    signature
-                                                                        .user
-                                                                        .name
-                                                                }
-                                                            </p>
-                                                            <p className="text-sm text-gray-500">
-                                                                {signature.type ===
-                                                                    'digital'
-                                                                    ? 'Tanda Tangan Digital'
-                                                                    : 'Tanda Tangan Fisik'}
-                                                            </p>
-                                                            <p className="text-xs text-gray-400">
-                                                                {new Date(
-                                                                    signature.signedAt,
-                                                                ).toLocaleDateString(
-                                                                    'id-ID',
-                                                                )}
-                                                            </p>
-                                                        </div>
+                                        {document.signatures.map((signature) => (
+                                            <div
+                                                key={signature.id}
+                                                className="flex items-center justify-between rounded-lg border p-4"
+                                            >
+                                                <div className="flex items-center space-x-4">
+                                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100">
+                                                        <User className="h-5 w-5" />
                                                     </div>
-                                                    <div className="flex items-center space-x-2">
-                                                        <Badge
-                                                            variant={
-                                                                signature.type ===
-                                                                    'digital'
-                                                                    ? 'default'
-                                                                    : 'secondary'
+                                                    <div>
+                                                        <p className="font-medium">
+                                                            {
+                                                                signature
+                                                                    .user
+                                                                    .name
                                                             }
-                                                        >
+                                                        </p>
+                                                        <p className="text-sm text-gray-500">
                                                             {signature.type ===
                                                                 'digital'
-                                                                ? 'Digital'
-                                                                : 'Fisik'}
-                                                        </Badge>
-                                                        {user.role ===
-                                                            'pimpinan' && (
-                                                                <div className="flex space-x-2">
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() =>
-                                                                            handleDeleteSignature(
-                                                                                signature.id,
-                                                                            )
-                                                                        }
-                                                                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                                                                        title="Hapus TTD"
-                                                                    >
-                                                                        <Trash2 className="h-4 w-4" />
-                                                                    </Button>
-                                                                </div>
+                                                                ? 'Tanda Tangan Digital'
+                                                                : 'Tanda Tangan Fisik'}
+                                                        </p>
+                                                        <p className="text-xs text-gray-400">
+                                                            {new Date(
+                                                                signature.signedAt,
+                                                            ).toLocaleDateString(
+                                                                'id-ID',
                                                             )}
+                                                        </p>
                                                     </div>
                                                 </div>
-                                            ),
-                                        )}
+                                                <div className="flex items-center space-x-2">
+                                                    <Badge
+                                                        variant={
+                                                            signature.type ===
+                                                                'digital'
+                                                                ? 'default'
+                                                                : 'secondary'
+                                                        }
+                                                    >
+                                                        {signature.type ===
+                                                            'digital'
+                                                            ? 'Digital'
+                                                            : 'Fisik'}
+                                                    </Badge>
+                                                    {user.role ===
+                                                        'pimpinan' &&
+                                                        signature.user.id ===
+                                                        user.id && (
+                                                            <div className="flex space-x-2">
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        handleDeleteSignature(
+                                                                            signature.id,
+                                                                        )
+                                                                    }
+                                                                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                                    title="Hapus TTD"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </Button>
+                                                            </div>
+                                                        )}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -635,6 +647,6 @@ export default function DocumentsShow({ document, user }: Props) {
                 cancelText="Batal"
                 variant="destructive"
             />
-        </AppLayout>
+        </AppLayout >
     );
 }

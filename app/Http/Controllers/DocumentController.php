@@ -15,7 +15,7 @@ class DocumentController extends Controller
     public function index()
     {
         $user = Auth::user();
-        $query = Document::with(['user', 'toUser', 'review', 'signatures.user']);
+        $query = Document::with(['user', 'toUser', 'review', 'signatures.user', 'signers']);
 
         if ($user->isAdmin()) {
             $documents = $query->latest('created_at')->paginate(10);
@@ -53,6 +53,14 @@ class DocumentController extends Controller
                         'type' => $signature->type,
                         'signedAt' => $signature->signedAt,
                         'user' => $signature->user ? $signature->user->toArray() : null,
+                    ];
+                })->toArray(),
+                'signers' => $document->signers->map(function ($signer) {
+                    return [
+                        'id' => $signer->id,
+                        'user_id' => $signer->user_id,
+                        'is_signed' => $signer->is_signed,
+                        'sign_order' => $signer->sign_order,
                     ];
                 })->toArray(),
             ];

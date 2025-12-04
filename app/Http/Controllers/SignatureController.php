@@ -68,7 +68,7 @@ class SignatureController extends Controller
             abort(403, 'Hanya pimpinan yang dapat mengakses halaman tanda tangan');
         }
 
-        $document->load(['user', 'signatures.user']);
+        $document->load(['user', 'signatures.user', 'signers']);
         $hasEncryptionKeys = EncryptionKey::where('userId', Auth::id())->exists();
 
         return Inertia::render('Signature/Show', [
@@ -76,6 +76,7 @@ class SignatureController extends Controller
             'existingSignatures' => $this->signatureService->getSignaturePositions($document),
             'canSign' => $this->canUserSign($document),
             'hasEncryptionKeys' => $hasEncryptionKeys,
+            'user' => $user,
         ]);
     }
 
@@ -443,6 +444,9 @@ class SignatureController extends Controller
         try {
             // Get all signatures for this document
             $signatures = $document->signatures()->with('user')->get();
+            
+            // Get all required signers
+            $signers = $document->signers()->get();
 
             // Get document info
             $documentInfo = [
@@ -469,17 +473,34 @@ class SignatureController extends Controller
                     ],
                 ];
             });
+            
+            // Get signer info with status
+            $signerInfo = $signers->map(function ($signer) {
+                $user = \App\Models\User::find($signer->user_id);
+                return [
+                    'user_id' => $signer->user_id,
+                    'name' => $user ? $user->name : 'Unknown',
+                    'is_signed' => $signer->is_signed,
+                    'sign_order' => $signer->sign_order,
+                ];
+            });
 
-            $verificationStatus = $signatures->count() > 0 ? 'signed' : 'unsigned';
-            $isVerified = $verificationStatus === 'signed';
+            // Check if all signers have signed
+            $allSigned = $signers->every(function ($signer) {
+                return $signer->is_signed;
+            });
+
+            $verificationStatus = $allSigned ? 'signed' : 'unsigned';
+            $isVerified = $allSigned;
 
             return Inertia::render('Verification/Show', [
                 'document' => $documentInfo,
                 'signatures' => $signatureInfo,
+                'signers' => $signerInfo,
                 'verification_status' => $verificationStatus,
                 'verified_at' => now()->toISOString(),
                 'success' => $isVerified,
-                'message' => $isVerified ? 'Dokumen berhasil diverifikasi' : 'Dokumen belum ditandatangani',
+                'message' => $isVerified ? 'Dokumen berhasil diverifikasi' : 'Dokumen belum lengkap ditandatangani',
             ]);
         } catch (\Exception $e) {
             return Inertia::render('Verification/Show', [
@@ -491,6 +512,7 @@ class SignatureController extends Controller
                     'status' => 'error',
                 ],
                 'signatures' => [],
+                'signers' => [],
                 'verification_status' => 'error',
                 'verified_at' => now()->toISOString(),
                 'success' => false,
