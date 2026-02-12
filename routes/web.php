@@ -56,7 +56,10 @@ Route::middleware(['auth'])->group(function () {
 
     // Excel template and email
     Route::get('templates/{template}/download-excel-template', [App\Http\Controllers\SertifikatController::class, 'downloadExcelTemplate'])->name('templates.download-excel-template');
-    Route::post('certificates/send-emails', [App\Http\Controllers\SertifikatController::class, 'sendCertificateEmails'])->name('certificates.send-emails');
+    Route::post('certificates/send-emails', [App\Http\Controllers\SertifikatController::class, 'sendCertificateEmails'])->name('certificates.sendEmails');
+    Route::get('certificates/email/progress/{batchId}', [App\Http\Controllers\SertifikatController::class, 'emailProgress'])->name('certificates.emailProgress');
+    Route::get('certificates/email-batch-status/{batchId}', [App\Http\Controllers\SertifikatController::class, 'checkEmailBatchStatus'])->name('certificates.emailBatchStatus');
+    Route::post('certificates/bulk-delete', [App\Http\Controllers\SertifikatController::class, 'bulkDelete'])->name('certificates.bulk-delete');
 
     // Signatures
     Route::resource('signatures', App\Http\Controllers\SignatureController::class);

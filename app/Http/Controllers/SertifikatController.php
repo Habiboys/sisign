@@ -10,8 +10,11 @@ use App\Services\CertificateService;
 use App\Services\ExcelTemplateService;
 use App\Services\EmailService;
 use App\Services\SignatureService;
+use App\Jobs\SendCertificateEmailsJob;
+use App\Jobs\SendSingleCertificateEmailJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Maatwebsite\Excel\Facades\Excel;
@@ -35,16 +38,59 @@ class SertifikatController extends Controller
         $this->emailService = $emailService;
         $this->signatureService = $signatureService;
     }
-    public function index()
+    public function index(Request $request)
     {
+        $search = $request->input('search');
+        $emailStatus = $request->input('email_status'); // 'unsent' or null
+
         $sertifikats = Sertifikat::with([
             'templateSertif' => function ($query) {
                 $query->withTrashed(); // Include soft deleted templates
             },
             'certificateRecipients.user'
         ])
-            ->latest('created_at')
-            ->paginate(10);
+            ->when($search, function ($query, $search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('nomor_sertif', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhereHas('templateSertif', function ($q) use ($search) {
+                            $q->where('title', 'like', "%{$search}%");
+                        });
+                });
+            })
+            ->when($emailStatus, function ($query, $status) {
+            switch ($status) {
+                case 'sent':
+                    $query->where('email_sent_status', 'sent');
+                    break;
+                case 'pending':
+                    $query->where('email_sent_status', 'pending');
+                    break;
+                case 'failed':
+                    $query->where('email_sent_status', 'failed');
+                    break;
+                case 'unsent':
+                    $query->whereNull('email_sent_at');
+                    break;
+            }
+        })
+        ->latest('created_at');
+
+        // Handle per_page parameter for pagination
+        $perPage = $request->input('per_page', 15); // Default 15
+        
+        if ($perPage === 'all') {
+            // When "all" is selected, get total count but limit to reasonable max
+            $totalCount = $sertifikats->count();
+            $perPage = min($totalCount, 500); // Max 500 to prevent performance issues
+            
+            Log::info('Pagination set to ALL', ['total' => $totalCount, 'limited_to' => $perPage]);
+        } else {
+            // Validate per_page is a valid number
+            $perPage = in_array((int)$perPage, [10, 20, 15]) ? (int)$perPage : 15;
+        }
+
+        $sertifikats = $sertifikats->paginate($perPage)->appends($request->except('page'));
 
         // Log untuk debugging
         Log::info('Sertifikat index - Raw query result', [
@@ -104,7 +150,8 @@ class SertifikatController extends Controller
 
         return Inertia::render('Certificates/Index', [
             'sertifikats' => $sertifikats,
-            'user' => Auth::user()
+            'user' => Auth::user(),
+            'search' => $search
         ]);
     }
 
@@ -514,10 +561,29 @@ class SertifikatController extends Controller
             $request->validate([
                 'templateSertifId' => 'required|exists:template_sertif,id',
                 'excel_file' => 'required|file|mimes:xlsx,xls|max:10240',
-                'passphrase' => 'nullable|string'
+                'passphrase' => 'nullable|string',
+                'show_qr_code' => 'boolean' // QR code toggle
             ]);
 
             Log::info('Validation passed successfully');
+
+            // DEBUG: Log show_qr_code value
+            Log::info('QR Code Toggle Value', [
+                'show_qr_code' => $request->show_qr_code,
+                'show_qr_code_type' => gettype($request->show_qr_code),
+                'all_request_data' => $request->except(['excel_file'])
+            ]);
+
+            // CRITICAL FIX: Convert string "0"/"1" to boolean
+            // Laravel sends checkbox as "0" or "1" string, not boolean
+            // PHP type coercion treats non-empty string "0" as true, so we must convert explicitly
+            $showQrCode = filter_var($request->show_qr_code, FILTER_VALIDATE_BOOLEAN);
+            
+            Log::info('QR Code after boolean conversion', [
+                'original' => $request->show_qr_code,
+                'converted' => $showQrCode,
+                'type' => gettype($showQrCode)
+            ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::error('Validation failed', [
                 'errors' => $e->errors(),
@@ -558,7 +624,8 @@ class SertifikatController extends Controller
             $result = $this->certificateService->generateBulkCertificatesFromExcel([
                 'templateSertifId' => $request->templateSertifId,
                 'excelData' => $excelData,
-                'passphrase' => $request->passphrase
+                'passphrase' => $request->passphrase,
+                'show_qr_code' => $showQrCode // Use converted boolean, not string from request
             ]);
 
             Log::info('Batch certificate generation started', [
@@ -610,92 +677,120 @@ class SertifikatController extends Controller
 
     public function sendCertificateEmails(Request $request)
     {
-        $request->validate([
-            'sertifikat_ids' => 'required|array|min:1',
-            'sertifikat_ids.*' => 'exists:sertifikat,id',
-            'template_id' => 'nullable|exists:template_sertif,id', // Optional: filter by template
-        ]);
-
-        try {
-            $certificates = [];
-            $sertifikatIds = $request->sertifikat_ids;
-
-            // Jika template_id diberikan, filter sertifikat berdasarkan template
-            $query = Sertifikat::with(['templateSertif', 'certificateRecipients.user'])
-                ->whereIn('id', $sertifikatIds);
-
-            if ($request->template_id) {
+        // Support two modes: specific IDs or select_all with filters
+        if ($request->has('select_all') && $request->select_all) {
+            // Select all mode: use filters to get IDs
+            $query = Sertifikat::query();
+            
+            if ($request->filled('template_id')) {
                 $query->where('templateSertifId', $request->template_id);
             }
+            
+            if ($request->filled('search')) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('nomor_sertif', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhereHas('templateSertif', function ($q) use ($search) {
+                          $q->where('title', 'like', "%{$search}%");
+                      });
+                });
+            }
+            
+            $certificateIds = $query->pluck('id')->toArray();
+        } else {
+            // Normal mode: validate and use provided IDs
+            $request->validate([
+                'sertifikat_ids' => 'required|array|min:1',
+                'sertifikat_ids.*' => 'exists:sertifikat,id',
+            ]);
+            
+            $certificateIds = $request->sertifikat_ids;
+        }
 
-            $sertifikats = $query->get();
+        if (empty($certificateIds)) {
+            return redirect()->route('certificates.index')
+                ->with('error', 'Tidak ada sertifikat yang dipilih');
+        }
 
-            foreach ($sertifikats as $sertifikat) {
-                // Gunakan email dari sertifikat langsung (untuk bulk generation)
-                if ($sertifikat->email) {
-                    $certificatePath = null;
-                    if ($sertifikat->file_path) {
-                        $certificatePath = storage_path('app/' . ltrim($sertifikat->file_path, '/'));
-                    } else {
-                        // Fallback ke path lama
-                        $certificatePath = storage_path('app/certificates/' . $sertifikat->id . '.pdf');
-                    }
-
-                    if (file_exists($certificatePath)) {
-                        $certificates[] = [
-                            'sertifikat' => $sertifikat,
-                            'recipient' => null, // Akan di-handle oleh EmailService
-                            'pdf_path' => $certificatePath,
-                            'email' => $sertifikat->email
-                        ];
-                    }
-                } else {
-                    // Fallback ke certificateRecipients (untuk sertifikat lama)
-                    foreach ($sertifikat->certificateRecipients as $recipient) {
-                        $certificatePath = null;
-                        if ($sertifikat->file_path) {
-                            $certificatePath = storage_path('app/' . ltrim($sertifikat->file_path, '/'));
-                        } else {
-                            $certificatePath = storage_path('app/certificates/' . $sertifikat->id . '.pdf');
-                        }
-
-                        if (file_exists($certificatePath)) {
-                            $certificates[] = [
-                                'sertifikat' => $sertifikat,
-                                'recipient' => $recipient->user,
-                                'pdf_path' => $certificatePath,
-                                'email' => $recipient->user->email
-                            ];
-                        }
-                    }
-                }
+        try {
+            // Create batch of individual email jobs
+            $jobs = [];
+            foreach ($certificateIds as $certId) {
+                $jobs[] = new SendSingleCertificateEmailJob($certId, Auth::id());
             }
 
-            if (empty($certificates)) {
-                return redirect()->route('certificates.index')
-                    ->with('error', 'Tidak ada sertifikat yang dapat dikirim. Pastikan file PDF tersedia dan email sudah diisi.');
-            }
+            $batch = Bus::batch($jobs)
+                ->name('Send Certificate Emails')
+                ->onQueue('emails')
+                ->dispatch();
+            
+            Log::info('Email batch dispatched', [
+                'user_id' => Auth::id(),
+                'batch_id' => $batch->id,
+                'total_jobs' => count($certificateIds)
+            ]);
 
-            $result = $this->emailService->sendBulkCertificateEmails($certificates);
-
-            $message = "Email berhasil dikirim ke {$result['sent']} penerima";
-            if ($result['failed'] > 0) {
-                $message .= ". Gagal mengirim ke {$result['failed']} penerima";
-                if (!empty($result['errors'])) {
-                    Log::warning('Email sending errors', ['errors' => $result['errors']]);
-                }
-            }
-
-            return redirect()->route('certificates.index')->with('success', $message);
+            // Redirect to progress page
+            return redirect()->route('certificates.emailProgress', ['batchId' => $batch->id]);
         } catch (\Exception $e) {
-            Log::error('Failed to send certificate emails', [
+            Log::error('Failed to dispatch email batch', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
 
             return redirect()->route('certificates.index')
-                ->with('error', 'Gagal mengirim email: ' . $e->getMessage());
+                ->with('error', 'Gagal memproses email: ' . $e->getMessage());
         }
+    }
+
+    public function emailProgress($batchId)
+    {
+        return Inertia::render('Certificates/EmailProgress', [
+            'batchId' => $batchId
+        ]);
+    }
+
+    public function checkEmailBatchStatus($batchId)
+    {
+        $batch = Bus::findBatch($batchId);
+
+        if (!$batch) {
+            return response()->json(['error' => 'Batch not found'], 404);
+        }
+
+        // Get failed job details
+        $failedJobDetails = [];
+        if ($batch->failedJobs > 0) {
+            $failedJobs = \DB::table('job_batches')
+                ->where('id', $batchId)
+                ->first();
+            
+            // Get certificates that failed
+            $failedCertificates = Sertifikat::whereNotNull('email_sent_error')
+                ->where('email_sent_status', 'failed')
+                ->whereDate('updated_at', '>=', $batch->createdAt)
+                ->get(['id', 'email', 'email_sent_error'])
+                ->map(function($cert) {
+                    return [
+                        'email' => $cert->email,
+                        'error' => $cert->email_sent_error
+                    ];
+                });
+            
+            $failedJobDetails = $failedCertificates->toArray();
+        }
+
+        return response()->json([
+            'id' => $batch->id,
+            'progress' => $batch->progress(),
+            'finished' => $batch->finished(),
+            'cancelled' => $batch->cancelled(),
+            'failedJobs' => $batch->failedJobs,
+            'processedJobs' => $batch->processedJobs(),
+            'totalJobs' => $batch->totalJobs,
+            'failedJobDetails' => $failedJobDetails,
+        ]);
     }
 
     public function show(Request $request, $certificate)
@@ -840,6 +935,94 @@ class SertifikatController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to delete certificate', [
                 'certificate_id' => is_string($certificate) ? $certificate : ($certificate->id ?? 'unknown'),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return redirect()->route('certificates.index')
+                ->with('error', 'Gagal menghapus sertifikat: ' . $e->getMessage());
+        }
+    }
+
+    public function bulkDelete(Request $request)
+    {
+        // Support two modes: specific IDs or select_all with filters
+        if ($request->has('select_all') && $request->select_all) {
+            // Select all mode: use filters to get IDs
+            $query = Sertifikat::query();
+            
+            if ($request->filled('template_id')) {
+                $query->where('templateSertifId', $request->template_id);
+            }
+            
+            if ($request->filled('search')) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('nomor_sertif', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhereHas('templateSertif', function ($q) use ($search) {
+                          $q->where('title', 'like', "%{$search}%");
+                      });
+                });
+            }
+            
+            $ids = $query->pluck('id')->toArray();
+        } else {
+            // Normal mode: use provided IDs
+            $request->validate([
+                'ids' => 'required|array|min:1',
+                'ids.*' => 'exists:sertifikat,id'
+            ]);
+            
+            $ids = $request->ids;
+        }
+
+        try {
+            $deleted = 0;
+            $errors = [];
+
+            foreach ($ids as $id) {
+                try {
+                    $sertifikat = Sertifikat::findOrFail($id);
+                    
+                    // Get file path
+                    $filePath = null;
+                    if ($sertifikat->file_path) {
+                        $filePath = storage_path('app/' . ltrim($sertifikat->file_path, '/'));
+                    } else {
+                        $filePath = storage_path('app/certificates/' . $id . '.pdf');
+                    }
+
+                    // Delete certificate recipients
+                    $sertifikat->certificateRecipients()->delete();
+                    
+                    // Delete certificate record
+                    $sertifikat->delete();
+                    
+                    // Delete PDF file
+                    if ($filePath && file_exists($filePath)) {
+                        @unlink($filePath);
+                    }
+                    
+                    $deleted++;
+                } catch (\Exception $e) {
+                    $errors[] = "Gagal menghapus sertifikat {$id}: " . $e->getMessage();
+                    Log::error('Failed to delete certificate in bulk', [
+                        'id' => $id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            $message = "{$deleted} sertifikat berhasil dihapus";
+            if (!empty($errors)) {
+                $message .= ". " . implode(', ', $errors);
+            }
+
+            return redirect()->route('certificates.index')
+                ->with('success', $message);
+        } catch (\Exception $e) {
+            Log::error('Bulk delete failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);

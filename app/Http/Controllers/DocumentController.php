@@ -12,26 +12,65 @@ use Inertia\Inertia;
 
 class DocumentController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $user = Auth::user();
         $query = Document::with(['user', 'toUser', 'review', 'signatures.user', 'signers']);
 
-        if ($user->isAdmin()) {
-            $documents = $query->latest('created_at')->paginate(10);
-        } elseif ($user->isPimpinan()) {
-            // Show documents where user is a signer
-            $documents = $query->whereHas('signers', function ($q) use ($user) {
+        // 1. Role Scope
+        if ($user->isPimpinan()) {
+            $query->whereHas('signers', function ($q) use ($user) {
                 $q->where('user_id', $user->id);
-            })->latest('created_at')->paginate(10);
-        } else {
-            $documents = $query->where('userId', $user->id)->latest('created_at')->paginate(10);
+            });
+        } elseif (!$user->isAdmin()) {
+             $query->where('userId', $user->id);
         }
-        // dd(Document::with('toUser')->first()->toUser);
-        //         $documents = \App\Models\Document::with('toUser', 'user')->get();
-        // dd($documents->toArray());
 
+        // 2. Search
+        if ($request->filled('search')) {
+             $search = $request->search;
+             $query->where(function($q) use ($search) {
+                 $q->where('title', 'like', "%{$search}%")
+                   ->orWhere('number', 'like', "%{$search}%");
+             });
+        }
 
+        // 3. Filter by Review Status
+        if ($request->filled('review_status') && $request->review_status !== 'all') {
+            $status = $request->review_status;
+            $query->whereHas('review', function ($q) use ($status) {
+                $q->where('status', $status);
+            });
+        }
+
+        // 4. Filter by Signed Status
+        if ($request->filled('signed_status') && $request->signed_status !== 'all') {
+            $status = $request->signed_status;
+            if ($status === 'signed') {
+                $query->whereNotNull('signed_file');
+            } elseif ($status === 'unsigned') {
+                $query->whereNull('signed_file')
+                      ->whereDoesntHave('signers', function ($q) {
+                          $q->where('is_signed', true);
+                      });
+            } elseif ($status === 'partial') {
+                 $query->whereNull('signed_file')
+                       ->whereHas('signers', function ($q) {
+                           $q->where('is_signed', true);
+                       });
+            }
+        }
+
+        // 5. Order
+        $query->latest('created_at');
+
+        // 6. Pagination
+        $perPage = $request->input('per_page', 10);
+        if ($perPage === 'all') {
+            $documents = $query->paginate(9999);
+        } else {
+            $documents = $query->paginate((int) $perPage);
+        }
 
         // Transform documents data to ensure proper serialization
         $documents->getCollection()->transform(function ($document) {
@@ -68,7 +107,10 @@ class DocumentController extends Controller
 
         return Inertia::render('Documents/Index', [
             'documents' => $documents,
-            'user' => $user
+            'user' => $user,
+            'search' => $request->search ?? '',
+            'review_status' => $request->review_status ?? 'all',
+            'signed_status' => $request->signed_status ?? 'all',
         ]);
     }
 
