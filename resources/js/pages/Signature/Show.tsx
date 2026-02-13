@@ -58,6 +58,7 @@ export default function SignDocument({
     const [currentPage, setCurrentPage] = useState(1);
     const [signatures, setSignatures] =
         useState<SignaturePosition[]>(existingSignatures);
+    const [showQRCode, setShowQRCode] = useState(true);
 
     const { success, error } = useToast();
     const deleteModal = useModal();
@@ -126,11 +127,10 @@ export default function SignDocument({
                 position: {
                     x: Math.round(position.x),
                     y: Math.round(position.y),
-                    width: 150,
                     height: 75,
                     page: Math.round(position.page),
                 },
-                passphrase: passphrase || null, // Use provided passphrase or null
+                pin: passphrase || null, // Send as 'pin' to match backend validation
                 signedPdfBase64: signedPdfBase64 || null, // Send signed PDF data
             },
             {
@@ -275,7 +275,7 @@ export default function SignDocument({
                                     documentId={document.id}
                                     generateQRCode={
                                         (document.signers?.filter((s) => s.is_signed).length || 0) + 1 ===
-                                        (document.signers?.length || 0)
+                                        (document.signers?.length || 0) && showQRCode
                                     }
                                 />
                             </CardContent>
@@ -284,6 +284,34 @@ export default function SignDocument({
 
                     {/* Sidebar */}
                     <div className="space-y-2 sm:space-y-4">
+                        {/* Options */}
+                        <Card>
+                            <CardHeader className="pb-2 sm:pb-6">
+                                <CardTitle className="text-sm sm:text-base">
+                                    Opsi Tanda Tangan
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-2 sm:p-6">
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="checkbox"
+                                        id="showQRCode"
+                                        checked={showQRCode}
+                                        onChange={(e) => setShowQRCode(e.target.checked)}
+                                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <label
+                                        htmlFor="showQRCode"
+                                        className="text-xs font-medium text-gray-700 sm:text-sm"
+                                    >
+                                        Tampilkan QR Code Verifikasi
+                                    </label>
+                                </div>
+                                <p className="mt-1 text-[10px] text-gray-500 sm:text-xs">
+                                    Jika diaktifkan, QR Code verifikasi akan ditambahkan otomatis di pojok kanan bawah pada halaman terakhir (hanya jika semua pihak sudah tanda tangan).
+                                </p>
+                            </CardContent>
+                        </Card>
                         {/* Document Info */}
                         <Card>
                             <CardHeader className="pb-2 sm:pb-6">
@@ -316,6 +344,27 @@ export default function SignDocument({
                                         {signatures.filter(s => s.type === 'physical').length}
                                     </p>
                                 </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Instructions */}
+                        <Card className="border-yellow-200 bg-yellow-50">
+                            <CardHeader className="pb-2 sm:pb-6">
+                                <CardTitle className="text-sm sm:text-base text-yellow-800">
+                                    Instruksi
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-2 sm:p-6">
+                                <ul className="space-y-1 text-xs text-yellow-700">
+                                    <li>• Langsung gambar tanda tangan di PDF</li>
+                                    <li>• Gunakan tools di bawah untuk menggambar</li>
+                                    <li>• Upload stempel/gambar untuk menambah stempel resmi</li>
+                                    <li>• Klik tombol "Stempel" lalu klik di PDF untuk menempatkan stempel</li>
+                                    <li>• Perbesar/perkecil stempel dengan scroll mouse atau slider</li>
+                                    <li>• <span className="font-medium text-red-600">PIN wajib diisi</span> untuk keamanan digital signature</li>
+                                    <li>• PDF yang dihasilkan akan memiliki: <span className="font-medium text-green-600">Tanda tangan fisik (gambar) + QR Code verifikasi digital</span></li>
+                                    <li>• TTD dan stempel akan langsung digambar di PDF dengan koordinat yang tepat</li>
+                                </ul>
                             </CardContent>
                         </Card>
 
@@ -388,25 +437,7 @@ export default function SignDocument({
                         </Card>
 
                         {/* Actions */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Actions</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                {!hasEncryptionKeys && (
-                                    <Button
-                                        onClick={() =>
-                                        (window.location.href =
-                                            '/encryption')
-                                        }
-                                        className="w-full"
-                                        variant="secondary"
-                                    >
-                                        Setup Digital Keys
-                                    </Button>
-                                )}
-                            </CardContent>
-                        </Card>
+
                     </div>
                 </div>
             </div>

@@ -4,6 +4,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useModal } from '@/hooks/use-modal';
 import { useToast } from '@/hooks/use-toast';
+import { type SharedData } from '@/types';
+import { usePage } from '@inertiajs/react';
 import { Eraser, Image, PenTool, Save, Stamp, Trash2, X } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
 import QRCode from 'qrcode';
@@ -57,7 +59,8 @@ export default function PDFCanvasViewer({
         string | null
     >(null);
 
-    const { error } = useToast();
+    const { auth } = usePage<SharedData>().props;
+    const { error, info } = useToast();
     const alertModal = useModal();
     const [alertData, setAlertData] = useState({
         title: '',
@@ -204,24 +207,13 @@ export default function PDFCanvasViewer({
 
             // Validate file type
             if (!file.type.startsWith('image/')) {
-                setAlertData({
-                    title: 'File Tidak Valid',
-                    description:
-                        'Hanya file gambar yang diperbolehkan (JPG, PNG, GIF)',
-                    type: 'info',
-                });
-                alertModal.open();
+                info('Hanya file gambar yang diperbolehkan (JPG, PNG, GIF)');
                 return;
             }
 
             // Validate file size (max 2MB)
             if (file.size > 2 * 1024 * 1024) {
-                setAlertData({
-                    title: 'File Terlalu Besar',
-                    description: 'Ukuran file maksimal 2MB',
-                    type: 'info',
-                });
-                alertModal.open();
+                info('Ukuran file maksimal 2MB');
                 return;
             }
 
@@ -340,6 +332,43 @@ export default function PDFCanvasViewer({
         setPreviousCanvasContent(null);
     }, [clearCanvas, stampImage, removeStamp]);
 
+    const handleUseSavedSignature = useCallback(() => {
+        if (!auth.user.signature_image) {
+            info('Anda belum mengupload tanda tangan di profil Anda.');
+            return;
+        }
+
+        const signatureUrl = `/storage/${auth.user.signature_image}`;
+
+        // Load image and set as stamp
+        const img = new window.Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+            // Create a canvas to convert image to data URL if needed
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                const dataUrl = canvas.toDataURL('image/png');
+
+                saveCanvasContent();
+                setStampImage(dataUrl);
+                setStampPosition({ x: 100, y: 100 });
+                setDrawingMode('stamp');
+                // Adjust stamp size logic if needed, maybe fit to reasonable size
+                setStampSize(150);
+            }
+        };
+        img.onerror = () => {
+            error('Gagal memuat gambar tanda tangan tersimpan.');
+        };
+        img.src = signatureUrl;
+    }, [auth.user.signature_image, alertModal, saveCanvasContent]);
+
+
+
     const loadPDF = useCallback(async () => {
         try {
             const pdfjsLib = await import('pdfjs-dist');
@@ -416,24 +445,18 @@ export default function PDFCanvasViewer({
         });
 
         if (!hasContent) {
-            setAlertData({
-                title: 'Belum Ada Tanda Tangan',
-                description: 'Silakan buat tanda tangan terlebih dahulu.',
-                type: 'info',
-            });
-            alertModal.open();
+            info('Silakan buat tanda tangan atau gunakan stempel terlebih dahulu.');
             return;
         }
 
         // Validate passphrase is required
         if (!passphrase || passphrase.trim() === '') {
-            setAlertData({
-                title: 'Passphrase Diperlukan',
-                description:
-                    'Passphrase harus diisi untuk keamanan digital signature.',
-                type: 'info',
-            });
-            alertModal.open();
+            error('PIN wajib diisi untuk keamanan digital signature.');
+            return;
+        }
+
+        if (passphrase.length !== 6) {
+            error('PIN harus 6 digit angka.');
             return;
         }
 
@@ -522,35 +545,36 @@ export default function PDFCanvasViewer({
                             pngError,
                             jpegError,
                         });
-                        setAlertData({
-                            title: 'Format Stempel Tidak Didukung',
-                            description:
-                                'Format gambar stempel tidak didukung. Gunakan PNG atau JPG.',
-                            type: 'info',
-                        });
-                        alertModal.open();
+                        info('Format gambar stempel tidak didukung. Gunakan PNG atau JPG.');
                         return;
                     }
                 }
 
                 // Scale stamp position and size to match PDF coordinates
+                const embedDims = stampImageEmbedded.scale(1);
+                const ratio = embedDims.width / embedDims.height;
                 const scaledStampX = stampPosition.x * canvasToPageScale;
                 const scaledStampY =
                     (canvas.height - stampPosition.y) * canvasToPageScale; // Flip Y coordinate
                 const scaledStampSize = stampSize * canvasToPageScale;
+                const pdfDrawWidth = scaledStampSize;
+                const pdfDrawHeight = scaledStampSize / ratio;
 
                 console.log('Stamp positioning:', {
                     originalPosition: stampPosition,
                     originalSize: stampSize,
                     scaledPosition: { x: scaledStampX, y: scaledStampY },
                     scaledSize: scaledStampSize,
+                    ratio,
+                    pdfDrawWidth,
+                    pdfDrawHeight,
                 });
 
                 page.drawImage(stampImageEmbedded, {
-                    x: scaledStampX - scaledStampSize / 2,
-                    y: scaledStampY - scaledStampSize / 2,
-                    width: scaledStampSize,
-                    height: scaledStampSize,
+                    x: scaledStampX - pdfDrawWidth / 2,
+                    y: scaledStampY - pdfDrawHeight / 2,
+                    width: pdfDrawWidth,
+                    height: pdfDrawHeight,
                 });
                 console.log('Stamp drawn on PDF');
             }
@@ -611,9 +635,9 @@ export default function PDFCanvasViewer({
 
                 signedPdfBase64 = btoa(binaryString);
                 console.log('Base64 conversion successful');
-            } catch (error) {
-                console.error('Base64 conversion failed:', error);
-                throw error;
+            } catch (err: any) {
+                console.error('Base64 conversion failed:', err);
+                throw err;
             }
 
             console.log('PDF data size:', {
@@ -628,21 +652,16 @@ export default function PDFCanvasViewer({
                 console.log('PDF validation successful:', {
                     pageCount: testPdf.getPageCount(),
                 });
-            } catch (error) {
-                console.error('PDF validation failed:', error);
+            } catch (err: any) {
+                console.error('PDF validation failed:', err);
                 const errorMessage =
-                    error instanceof Error ? error.message : 'Unknown error';
+                    err instanceof Error ? err.message : 'Unknown error';
                 console.error('PDF validation error details:', {
                     message: errorMessage,
-                    stack: error instanceof Error ? error.stack : undefined,
-                    name: error instanceof Error ? error.name : 'Unknown',
+                    stack: err instanceof Error ? err.stack : undefined,
+                    name: err instanceof Error ? err.name : 'Unknown',
                 });
-                setAlertData({
-                    title: 'PDF Rusak',
-                    description: 'PDF yang dihasilkan rusak: ' + errorMessage,
-                    type: 'info',
-                });
-                alertModal.open();
+                error('PDF yang dihasilkan rusak: ' + errorMessage);
                 setIsProcessing(false);
                 return;
             }
@@ -652,24 +671,24 @@ export default function PDFCanvasViewer({
 
             setPassphrase('');
             clearCanvas();
-        } catch (error) {
-            console.error('Error processing signature:', error);
+        } catch (err) {
+            console.error('Error processing signature:', err);
 
             let errorMessage = 'Unknown error';
             let errorTitle = 'Gagal Memproses';
 
-            if (error instanceof Error) {
-                errorMessage = error.message;
+            if (err instanceof Error) {
+                errorMessage = err.message;
 
                 // Specific error messages for common issues
-                if (error.message.includes('not a PNG file')) {
+                if (err.message.includes('not a PNG file')) {
                     errorTitle = 'Format Gambar Tidak Didukung';
                     errorMessage =
                         'Format gambar stempel tidak didukung. Gunakan PNG atau JPG.';
-                } else if (error.message.includes('not a JPEG file')) {
+                } else if (err.message.includes('not a JPEG file')) {
                     errorTitle = 'Format JPEG Tidak Valid';
                     errorMessage = 'File JPEG tidak valid atau rusak.';
-                } else if (error.message.includes('Maximum call stack')) {
+                } else if (err.message.includes('Maximum call stack')) {
                     errorTitle = 'File Terlalu Besar';
                     errorMessage = 'File PDF terlalu besar untuk diproses.';
                 }
@@ -677,16 +696,11 @@ export default function PDFCanvasViewer({
 
             console.error('Error details:', {
                 message: errorMessage,
-                stack: error instanceof Error ? error.stack : undefined,
-                name: error instanceof Error ? error.name : 'Unknown',
+                stack: err instanceof Error ? err.stack : undefined,
+                name: err instanceof Error ? err.name : 'Unknown',
             });
 
-            setAlertData({
-                title: errorTitle,
-                description: errorMessage,
-                type: 'info',
-            });
-            alertModal.open();
+            error(errorMessage);
         } finally {
             setIsProcessing(false);
         }
@@ -716,15 +730,18 @@ export default function PDFCanvasViewer({
                 if (stampImage && stampPosition) {
                     const stampImg = new window.Image();
                     stampImg.onload = () => {
-                        const stampX = stampPosition.x - stampSize / 2;
-                        const stampY = stampPosition.y - stampSize / 2;
+                        const ratio = stampImg.width / stampImg.height;
+                        const drawWidth = stampSize;
+                        const drawHeight = stampSize / ratio;
+                        const stampX = stampPosition.x - drawWidth / 2;
+                        const stampY = stampPosition.y - drawHeight / 2;
 
                         ctx.drawImage(
                             stampImg,
                             stampX,
                             stampY,
-                            stampSize,
-                            stampSize,
+                            drawWidth,
+                            drawHeight,
                         );
                     };
                     stampImg.src = stampImage;
@@ -735,10 +752,13 @@ export default function PDFCanvasViewer({
             // No previous content, just draw stamp
             const img = new window.Image();
             img.onload = () => {
-                const stampX = stampPosition.x - stampSize / 2;
-                const stampY = stampPosition.y - stampSize / 2;
+                const ratio = img.width / img.height;
+                const drawWidth = stampSize;
+                const drawHeight = stampSize / ratio;
+                const stampX = stampPosition.x - drawWidth / 2;
+                const stampY = stampPosition.y - drawHeight / 2;
 
-                ctx.drawImage(img, stampX, stampY, stampSize, stampSize);
+                ctx.drawImage(img, stampX, stampY, drawWidth, drawHeight);
             };
             img.src = stampImage;
         }
@@ -751,48 +771,6 @@ export default function PDFCanvasViewer({
 
     return (
         <div className="space-y-4">
-            {canEdit && (
-                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
-                    <h4 className="mb-2 text-sm font-semibold text-yellow-800">
-                        Instruksi:
-                    </h4>
-                    <ul className="space-y-1 text-xs text-yellow-700">
-                        <li>
-                            • Langsung gambar tanda tangan di PDF di bawah ini
-                        </li>
-                        <li>• Gunakan tools di bawah untuk menggambar</li>
-                        <li>
-                            • Upload stempel/gambar untuk menambah stempel resmi
-                        </li>
-                        <li>
-                            • Klik tombol "Stempel" lalu klik di PDF untuk
-                            menempatkan stempel
-                        </li>
-                        <li>
-                            • Perbesar/perkecil stempel dengan scroll mouse atau
-                            slider
-                        </li>
-                        <li>
-                            •{' '}
-                            <span className="font-medium text-red-600">
-                                Passphrase wajib diisi
-                            </span>{' '}
-                            untuk keamanan digital signature
-                        </li>
-                        <li>
-                            • PDF yang dihasilkan akan memiliki:{' '}
-                            <span className="font-medium text-green-600">
-                                Tanda tangan fisik (gambar) + QR Code verifikasi
-                                digital
-                            </span>
-                        </li>
-                        <li>
-                            • TTD dan stempel akan langsung digambar di PDF
-                            dengan koordinat yang tepat
-                        </li>
-                    </ul>
-                </div>
-            )}
 
             <div className="relative flex justify-center">
                 <div className="relative inline-block">
@@ -866,6 +844,19 @@ export default function PDFCanvasViewer({
                             >
                                 <Eraser className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
                                 <span className="hidden sm:inline">Eraser</span>
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="px-2 text-xs sm:px-3 sm:text-sm"
+                                onClick={handleUseSavedSignature}
+                                title="Gunakan Tanda Tangan Tersimpan"
+                            >
+                                <Stamp className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline">
+                                    TTD Tersimpan
+                                </span>
+                                <span className="sm:hidden">TTD</span>
                             </Button>
                         </div>
 
@@ -1067,13 +1058,13 @@ export default function PDFCanvasViewer({
                                 className="text-xs font-medium sm:text-sm"
                             >
                                 <span className="hidden sm:inline">
-                                    Passphrase untuk Digital Signature
+                                    PIN Digital Signature
                                     <span className="ml-1 font-medium text-red-500">
                                         *
                                     </span>
                                 </span>
                                 <span className="sm:hidden">
-                                    Passphrase
+                                    PIN
                                     <span className="ml-1 font-medium text-red-500">
                                         *
                                     </span>
@@ -1084,24 +1075,18 @@ export default function PDFCanvasViewer({
                                 type="password"
                                 value={passphrase}
                                 onChange={(e) => setPassphrase(e.target.value)}
-                                placeholder="Masukkan passphrase (wajib diisi)"
+                                placeholder="Masukkan 6-digit PIN"
                                 className="w-full"
                                 required
+                                maxLength={6}
+                                pattern="\d{6}"
                             />
                             <p className="text-xs text-gray-500">
                                 <span className="hidden sm:inline">
-                                    Passphrase wajib diisi untuk melindungi
-                                    private key digital signature Anda.
-                                    <span className="font-medium text-red-500">
-                                        *
-                                    </span>
+                                    PIN 6 digit wajib diisi untuk otorisasi tanda tangan.
                                 </span>
                                 <span className="sm:hidden">
-                                    Wajib diisi untuk keamanan digital
-                                    signature.
-                                    <span className="font-medium text-red-500">
-                                        *
-                                    </span>
+                                    PIN 6 digit wajib diisi.
                                 </span>
                             </p>
                         </div>
@@ -1153,7 +1138,9 @@ export default function PDFCanvasViewer({
                 </div>
             </div>
 
-            {/* Alert Modal */}
+
+
+
             <AlertModal
                 open={alertModal.isOpen}
                 onClose={alertModal.close}
@@ -1161,6 +1148,6 @@ export default function PDFCanvasViewer({
                 description={alertData.description}
                 type={alertData.type}
             />
-        </div>
+        </div >
     );
 }

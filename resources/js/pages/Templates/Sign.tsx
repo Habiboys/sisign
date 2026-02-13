@@ -1,11 +1,9 @@
 import PDFCanvasViewer from '@/components/PDFCanvasViewer';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router } from '@inertiajs/react';
-import { Download } from 'lucide-react';
 
 interface User {
     id: string;
@@ -188,43 +186,28 @@ export default function TemplateSign({ template, user }: Props) {
                             </CardContent>
                         </Card>
 
-                        {/* Actions */}
-                        <Card>
+                        {/* Instructions */}
+                        <Card className="border-yellow-200 bg-yellow-50">
                             <CardHeader className="pb-2 sm:pb-6">
-                                <CardTitle className="text-sm sm:text-base">
-                                    Actions
+                                <CardTitle className="text-sm sm:text-base text-yellow-800">
+                                    Instruksi
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent className="space-y-2 p-2 sm:space-y-3 sm:p-6">
-                                {isTemplateSigned && (
-                                    <Button
-                                        variant="outline"
-                                        onClick={downloadSignedTemplate}
-                                        className="w-full"
-                                    >
-                                        <Download className="mr-2 h-4 w-4" />
-                                        Download Template Bertanda Tangan
-                                    </Button>
-                                )}
-
-                                {isTemplateSigned && (
-                                    <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                                        <p className="text-xs text-blue-800 sm:text-sm">
-                                            ℹ️ Template ini sudah memiliki tanda tangan, namun mungkin belum lengkap.
-                                        </p>
-                                    </div>
-                                )}
-
-                                {user.role !== 'pimpinan' && (
-                                    <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                                        <p className="text-center text-xs text-gray-600 sm:text-sm">
-                                            Hanya pimpinan yang dapat
-                                            menandatangani template sertifikat.
-                                        </p>
-                                    </div>
-                                )}
+                            <CardContent className="p-2 sm:p-6">
+                                <ul className="space-y-1 text-xs text-yellow-700">
+                                    <li>• Langsung gambar tanda tangan di PDF</li>
+                                    <li>• Gunakan tools di bawah untuk menggambar</li>
+                                    <li>• Upload stempel/gambar untuk menambah stempel resmi</li>
+                                    <li>• Klik tombol "Stempel" lalu klik di PDF untuk menempatkan stempel</li>
+                                    <li>• Perbesar/perkecil stempel dengan scroll mouse atau slider</li>
+                                    <li>• <span className="font-medium text-red-600">PIN wajib diisi</span> untuk keamanan digital signature</li>
+                                    <li>• PDF yang dihasilkan akan memiliki: <span className="font-medium text-green-600">Tanda tangan fisik (gambar) + QR Code verifikasi digital</span></li>
+                                    <li>• TTD dan stempel akan langsung digambar di PDF dengan koordinat yang tepat</li>
+                                </ul>
                             </CardContent>
                         </Card>
+
+
                     </div>
                 </div>
             </div>

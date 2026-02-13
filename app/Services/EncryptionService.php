@@ -128,10 +128,9 @@ distinguished_name = req_distinguished_name
         if (!$privateKeyResource) {
             // Check if it's likely a passphrase error
             $error = openssl_error_string();
-            if ($passphrase && strpos($error, 'bad decrypt') !== false) {
-                throw new Exception('Passphrase salah. Silakan coba lagi.');
-            }
-            throw new Exception('Invalid private key or passphrase');
+            Log::error('OpenSSL Private Key Error', ['error' => $error, 'has_passphrase' => !!$passphrase]);
+            
+            throw new Exception('PIN yang Anda masukkan salah.');
         }
 
         openssl_sign($data, $signature, $privateKeyResource, OPENSSL_ALGO_SHA256);

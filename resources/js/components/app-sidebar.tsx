@@ -16,8 +16,8 @@ import {
     Award,
     FileCheck,
     FileText,
-    Key,
-    LayoutGrid
+    LayoutGrid,
+    Settings
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
@@ -51,14 +51,14 @@ const getMainNavItems = (userRole: string): NavItem[] => {
         );
     }
 
-    // Only show encryption key menu for pimpinan
-    if (userRole === 'pimpinan') {
-        baseItems.push({
-            title: 'Kunci Enkripsi',
-            href: '/encryption',
-            icon: Key,
-        });
-    }
+
+
+    // Add Settings link for all users
+    baseItems.push({
+        title: 'Settings',
+        href: '/settings/profile',
+        icon: Settings,
+    });
 
     return baseItems;
 };
