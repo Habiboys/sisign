@@ -5,7 +5,7 @@ services:
             context: .
             dockerfile: Dockerfile
         ports:
-            - '8000:80'
+            - '8000:8000'
         volumes:
             - ./storage:/var/www/html/storage
             - ./public/storage:/var/www/html/public/storage
