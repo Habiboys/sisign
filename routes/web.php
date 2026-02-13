@@ -80,6 +80,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('templates/{template}/signed-pdf', [App\Http\Controllers\TemplateSertifController::class, 'viewSignedPDF'])->name('templates.signed-pdf');
 
     // Encryption Keys Management
+    // Encryption Keys Management (Deprecated/Removed)
+    /*
     Route::prefix('encryption')->name('encryption.')->group(function () {
         Route::get('/', [App\Http\Controllers\EncryptionController::class, 'index'])->name('index');
         Route::post('generate-keys', [App\Http\Controllers\EncryptionController::class, 'generateKeys'])->name('generate');
@@ -88,6 +90,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('test', [App\Http\Controllers\EncryptionController::class, 'testEncryption'])->name('test');
         Route::delete('delete-keys', [App\Http\Controllers\EncryptionController::class, 'deleteKeys'])->name('delete');
     });
+    */
 });
 
 require __DIR__ . '/settings.php';

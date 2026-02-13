@@ -141,15 +141,24 @@ class SignatureController extends Controller
             'position.width' => 'nullable|integer|min:100|max:400',
             'position.height' => 'nullable|integer|min:50|max:200',
             'position.page' => 'nullable|integer|min:1',
-            'passphrase' => 'nullable|string',
+            'pin' => 'required|string|digits:6',
         ]);
+
+        $user = Auth::user();
+
+        if (!\Illuminate\Support\Facades\Hash::check($request->pin, $user->pin)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'PIN salah',
+            ], 403);
+        }
 
         try {
             $signature = $this->signatureService->createDigitalSignature([
                 'documentId' => $document->id,
                 'userId' => Auth::id(),
                 'position' => $request->position ?? [],
-                'passphrase' => $request->passphrase,
+                'passphrase' => $request->pin, // Use PIN as passphrase
             ]);
 
             // Update signer status
@@ -189,16 +198,20 @@ class SignatureController extends Controller
             'position.width' => 'nullable|integer|min:50|max:300',
             'position.height' => 'nullable|integer|min:25|max:150',
             'position.page' => 'nullable|integer|min:1',
-            'passphrase' => 'nullable|string',
+            'pin' => 'required|string|digits:6',
             'signedPdfBase64' => 'nullable|string',
         ]);
+
+        if (!\Illuminate\Support\Facades\Hash::check($request->pin, $user->pin)) {
+            return redirect()->back()->withErrors(['error' => 'PIN salah']);
+        }
 
         try {
             // Create physical signature
             $physicalSignature = $this->signatureService->createPhysicalSignature([
                 'documentId' => $document->id,
                 'userId' => Auth::id(),
-                'signatureData' => $request->signatureData,
+                'signatureData' => $request->signatureData, // Frontend should send image data or null if using saved image? Handled by frontend sending logic.
                 'position' => $request->position,
             ]);
 
@@ -213,7 +226,7 @@ class SignatureController extends Controller
                     'height' => 60,
                     'page' => $request->position['page'] ?? 1,
                 ],
-                'passphrase' => $request->passphrase,
+                'passphrase' => $request->pin, // Use PIN
             ]);
 
             // Save signed PDF if provided

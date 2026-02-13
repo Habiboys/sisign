@@ -26,6 +26,8 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'pin',
+        'signature_image',
     ];
     protected $keyType = 'string';   // penting!
     public $incrementing = false;    // matikan auto increment
@@ -39,6 +41,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'pin',
     ];
 
     /**

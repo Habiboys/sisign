@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { edit } from '@/routes/profile';
+import UpdateSignatureForm from './update-signature-form';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -107,12 +108,12 @@ export default function Profile({
 
                                             {status ===
                                                 'verification-link-sent' && (
-                                                <div className="mt-2 text-sm font-medium text-green-600">
-                                                    A new verification link has
-                                                    been sent to your email
-                                                    address.
-                                                </div>
-                                            )}
+                                                    <div className="mt-2 text-sm font-medium text-green-600">
+                                                        A new verification link has
+                                                        been sent to your email
+                                                        address.
+                                                    </div>
+                                                )}
                                         </div>
                                     )}
 
@@ -140,6 +141,8 @@ export default function Profile({
                         )}
                     </Form>
                 </div>
+
+                <UpdateSignatureForm />
 
                 <DeleteUser />
             </SettingsLayout>
