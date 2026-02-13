@@ -1,0 +1,13 @@
+
+# Valid gitignore content
+.git
+.idea
+.vscode
+.env
+node_modules
+vendor
+public/storage
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/logs/*
