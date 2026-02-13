@@ -8,19 +8,9 @@ services:
             - '8000:8000'
         volumes:
             - ./storage:/var/www/html/storage
-            - ./public/storage:/var/www/html/public/storage
             - ./.env:/var/www/html/.env 
         networks:
             - sisign_network
-        command: >
-            sh -c "
-              mkdir -p /var/www/html/bootstrap/cache &&
-              mkdir -p /var/www/html/public/storage &&
-              chmod -R 775 /var/www/html/bootstrap/cache &&
-              chmod -R 775 /var/www/html/storage &&
-              chmod -R 775 /var/www/html/public/storage &&
-              /start.sh
-            "
 
 networks:
     sisign_network:
