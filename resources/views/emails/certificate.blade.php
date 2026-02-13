@@ -80,7 +80,7 @@
 
 <body>
     <div class="header">
-        <h1>🎓 Sertifikat Digital</h1>
+        <h1>Sertifikat Digital</h1>
         <p>{{ $template->title }}</p>
     </div>
 

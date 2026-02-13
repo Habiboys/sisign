@@ -81,13 +81,15 @@ class CertificateService
     {
         Log::info('CertificateService::generateBulkCertificatesFromExcel called', [
             'templateSertifId' => $data['templateSertifId'],
-            'excelData_count' => count($data['excelData'] ?? [])
+            'excelData_count' => count($data['excelData'] ?? []),
+            'show_qr_code' => $data['show_qr_code'] ?? true
         ]);
 
         $template = TemplateSertif::findOrFail($data['templateSertifId']);
         $excelData = $data['excelData'];
         $signedTemplatePath = $this->getSignedTemplatePath($template);
         $passphrase = $data['passphrase'] ?? null;
+        $showQrCode = $data['show_qr_code'] ?? true; // Default to true
         $userId = Auth::id();
 
         if (!$signedTemplatePath) {
@@ -96,7 +98,7 @@ class CertificateService
 
         $jobs = [];
         foreach ($excelData as $index => $row) {
-            $jobs[] = new \App\Jobs\GenerateBulkCertificatesJob($template, $row, $userId, $passphrase);
+            $jobs[] = new \App\Jobs\GenerateBulkCertificatesJob($template, $row, $userId, $passphrase, $showQrCode);
         }
 
         $batch = \Illuminate\Support\Facades\Bus::batch($jobs)
@@ -110,7 +112,7 @@ class CertificateService
         ];
     }
 
-    public function processSingleExcelRow(TemplateSertif $template, array $row, ?string $passphrase = null): void
+    public function processSingleExcelRow(TemplateSertif $template, array $row, ?string $passphrase = null, bool $showQrCode = true): void
     {
         $signedTemplatePath = $this->getSignedTemplatePath($template);
         
@@ -216,7 +218,8 @@ class CertificateService
                 $excelRowForOverlay,
                 $nomorSertif,
                 $passphrase,
-                $sertifikat->id // Pass sertifikat ID untuk QR code
+                $sertifikat->id, // Pass sertifikat ID untuk QR code
+                $showQrCode // Pass QR code toggle option
             );
 
             // Pastikan file benar-benar ada sebelum update database
@@ -306,14 +309,15 @@ class CertificateService
         return $outputPath;
     }
 
-    private function generateIndividualCertificateFromExcel(string $signedTemplatePath, TemplateSertif $template, array $excelRow, ?string $nomorSertif, ?string $passphrase = null, ?string $sertifikatId = null): string
+    private function generateIndividualCertificateFromExcel(string $signedTemplatePath, TemplateSertif $template, array $excelRow, ?string $nomorSertif, ?string $passphrase = null, ?string $sertifikatId = null, bool $showQrCode = true): string
     {
         Log::info('Starting generateIndividualCertificateFromExcel', [
             'signedTemplatePath' => $signedTemplatePath,
             'template_id' => $template->id,
             'nomor_sertif' => $nomorSertif,
             'excelRow' => $excelRow,
-            'has_passphrase' => $passphrase ? 'YES' : 'NO'
+            'has_passphrase' => $passphrase ? 'YES' : 'NO',
+            'show_qr_code' => $showQrCode
         ]);
 
         // Copy template PDF yang sudah ditandatangani dan tambahkan data dynamic
@@ -353,7 +357,7 @@ class CertificateService
                 // Tambahkan data dynamic dan QR code unik pada halaman terakhir
                 if ($pageNo === $pageCount) {
                     // Tambahkan text overlay menggunakan variable positions
-                    $this->addTextOverlayWithVariables($pdf, $template, $excelRow, $nomorSertif, $passphrase, $size, $sertifikatId);
+                    $this->addTextOverlayWithVariables($pdf, $template, $excelRow, $nomorSertif, $passphrase, $size, $sertifikatId, $showQrCode);
                 }
             }
 
@@ -415,7 +419,7 @@ class CertificateService
                             $pdf->useTemplate($templateId);
 
                             if ($pageNo === $pageCount) {
-                                $this->addTextOverlayWithVariables($pdf, $template, $excelRow, $nomorSertif, $passphrase, $size, $sertifikatId);
+                                $this->addTextOverlayWithVariables($pdf, $template, $excelRow, $nomorSertif, $passphrase, $size, $sertifikatId, $showQrCode);
                             }
                         }
 
@@ -513,12 +517,13 @@ class CertificateService
         return null;
     }
 
-    private function addTextOverlayWithVariables($pdf, TemplateSertif $template, array $excelRow, string $nomorSertif, ?string $passphrase, array $pageSize, string $sertifikatId): void
+    private function addTextOverlayWithVariables($pdf, TemplateSertif $template, array $excelRow, string $nomorSertif, ?string $passphrase, array $pageSize, string $sertifikatId, bool $showQrCode = true): void
     {
         Log::info('Adding text overlay with variable positions', [
             'pageSize' => $pageSize,
             'variable_positions_count' => count($template->variable_positions ?? []),
-            'excel_row_count' => count($excelRow)
+            'excel_row_count' => count($excelRow),
+            'show_qr_code' => $showQrCode // Log QR code toggle
         ]);
 
         $variablePositions = $template->variable_positions ?? [];
@@ -582,10 +587,25 @@ class CertificateService
                             'varName' => $varName,
                             'x_pct' => $variable['x_pct'],
                             'y_pct' => $variable['y_pct'],
-                            'pdfX' => $pdfX,
-                            'pdfY' => $pdfY,
+                            'pdfX_raw' => $pdfX,
+                            'pdfY_raw' => $pdfY,
                             'pageSize' => $pageSize
                         ]);
+
+                        // FIX: Adjust coordinates for A4 Vertical/Portrait
+                        // User report: "hasilnya agak melenceng ke bawah dan geser ke kanan"
+                        // Correction: Shift Up (decrease Y) and Left (decrease X)
+                        if ($pageSize['width'] < $pageSize['height']) {
+                           // Asumsi ini A4 Portrait
+                           // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
+                           $pdfX -= 4; // Geser kiri 4pt
+                           $pdfY -= 4; // Geser atas 4pt
+                           
+                           Log::info('Applied A4 Portrait correction (final)', [
+                               'new_pdfX' => $pdfX,
+                               'new_pdfY' => $pdfY
+                           ]);
+                        }
                     } else {
                         // Fallback to old method (legacy support)
                         // Convert web/canvas coordinates to PDF coordinates
@@ -647,7 +667,7 @@ class CertificateService
         }
 
         // Add unique QR code for each certificate (not in template signature)
-        $this->addUniqueDigitalSignatureToTemplate($pdf, $template, $nomorSertif, $passphrase, $pageSize);
+        $this->addUniqueDigitalSignatureToTemplate($pdf, $template, $nomorSertif, $passphrase, $pageSize, $showQrCode);
     }
 
     private function addTextOverlayFallback($pdf, array $excelRow, string $nomorSertif, array $pageSize): void
@@ -941,7 +961,7 @@ class CertificateService
         Log::info('Added fallback data', ['data_count' => count($data)]);
     }
 
-    private function addUniqueDigitalSignatureToTemplate($pdf, TemplateSertif $template, ?string $nomorSertif, ?string $passphrase, array $pageSize): void
+    private function addUniqueDigitalSignatureToTemplate($pdf, TemplateSertif $template, ?string $nomorSertif, ?string $passphrase, array $pageSize, bool $showQrCode = true): void
     {
         try {
             // Generate unique certificate number if not provided
@@ -978,28 +998,42 @@ class CertificateService
                 }
             }
 
-            // Generate QR code
-            $qrCode = $this->generateQRCode($qrData);
+            // Only generate QR code if showQrCode is true
+            if ($showQrCode) {
+                // Generate QR code
+                $qrCode = $this->generateQRCode($qrData);
 
-            // Position QR code (bottom right corner)
-            $qrSize = min(50, $pageSize['width'] / 15);
-            $qrX = $pageSize['width'] - $qrSize - 20;
-            $qrY = $pageSize['height'] - $qrSize - 20;
+                // Position QR code (bottom right corner)
+                $qrSize = min(50, $pageSize['width'] / 15);
+                $qrX = $pageSize['width'] - $qrSize - 20;
+                $qrY = $pageSize['height'] - $qrSize - 20;
 
-            // Add QR code to PDF
-            $pdf->Image($qrCode, $qrX, $qrY, $qrSize, $qrSize, 'PNG');
+                // FIX: Adjust coordinates for A4 Vertical/Portrait
+                if ($pageSize['width'] < $pageSize['height']) {
+                   // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
+                   $qrX -= 4;
+                   $qrY -= 4;
+                }
 
-            // Add verification text
-            $this->setFontForPDF($pdf, 'Arial', '', 8);
-            $pdf->SetTextColor(100, 100, 100);
-            $pdf->SetXY($qrX, $qrY + $qrSize + 5);
-            $pdf->Cell($qrSize, 4, 'Digital Verification', 0, 1, 'C');
+                // Add QR code to PDF
+                $pdf->Image($qrCode, $qrX, $qrY, $qrSize, $qrSize, 'PNG');
 
-            Log::info('Added unique digital signature QR code', [
-                'certificate_number' => $nomorSertif,
-                'qr_data' => $qrData,
-                'qr_position' => ['x' => $qrX, 'y' => $qrY, 'size' => $qrSize]
-            ]);
+                // Add verification text
+                $this->setFontForPDF($pdf, 'Arial', '', 8);
+                $pdf->SetTextColor(100, 100, 100);
+                $pdf->SetXY($qrX, $qrY + $qrSize + 5);
+                $pdf->Cell($qrSize, 4, 'Digital Verification', 0, 1, 'C');
+
+                Log::info('Added unique digital signature QR code', [
+                    'certificate_number' => $nomorSertif,
+                    'qr_data' => $qrData,
+                    'qr_position' => ['x' => $qrX, 'y' => $qrY, 'size' => $qrSize]
+                ]);
+            } else {
+                Log::info('QR code generation skipped (showQrCode = false)', [
+                    'certificate_number' => $nomorSertif
+                ]);
+            }
         } catch (\Exception $e) {
             Log::error('Failed to add digital signature QR code', [
                 'certificate_number' => $nomorSertif,
@@ -1008,7 +1042,7 @@ class CertificateService
         }
     }
 
-    private function addUniqueDigitalSignature($pdf, TemplateSertif $template, string $nomorSertif, array $pageSize): void
+    private function addUniqueDigitalSignature($pdf, TemplateSertif $template, string $nomorSertif, array $pageSize, bool $showQrCode = true): void
     {
         try {
             // Generate verification URL untuk QR code
@@ -1016,29 +1050,44 @@ class CertificateService
             $verificationUrl = url('/verify-certificate/' . $nomorSertif);
             $qrData = $verificationUrl;
 
-            // Generate QR code
-            $qrCode = $this->generateQRCode($qrData);
+            // Only generate QR code if showQrCode is true
+            if ($showQrCode) {
+                // Generate QR code
+                $qrCode = $this->generateQRCode($qrData);
 
-            // Position QR code (bottom right corner)
-            $qrSize = min(50, $pageSize['width'] / 15);
-            $qrX = $pageSize['width'] - $qrSize - 20;
-            $qrY = $pageSize['height'] - $qrSize - 20;
+                // Postion QR code (bottom right corner)
+                $qrSize = min(50, $pageSize['width'] / 15);
+                $qrX = $pageSize['width'] - $qrSize - 20;
+                $qrY = $pageSize['height'] - $qrSize - 20;
 
-            // Add QR code to PDF
-            $pdf->Image($qrCode, $qrX, $qrY, $qrSize, $qrSize, 'PNG');
+                // FIX: Adjust coordinates for A4 Vertical/Portrait
+                if ($pageSize['width'] < $pageSize['height']) {
+                   // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
+                   $qrX -= 4;
+                   $qrY -= 4;
+                }
 
-            // Add verification text
-            $this->setFontForPDF($pdf, 'Arial', '', 8);
-            $pdf->SetTextColor(100, 100, 100);
-            $pdf->SetXY($qrX, $qrY + $qrSize + 5);
-            $pdf->Cell($qrSize, 4, 'Digital Verification', 0, 1, 'C');
+                // Add QR code to PDF
+                $pdf->Image($qrCode, $qrX, $qrY, $qrSize, $qrSize, 'PNG');
 
-            Log::info('Added unique digital signature QR code', [
-                'certificate_number' => $nomorSertif,
-                'template_id' => $template->id,
-                'qr_data' => $qrData,
-                'qr_position' => ['x' => $qrX, 'y' => $qrY, 'size' => $qrSize]
-            ]);
+                // Add verification text
+                $this->setFontForPDF($pdf, 'Arial', '', 8);
+                $pdf->SetTextColor(100, 100, 100);
+                $pdf->SetXY($qrX, $qrY + $qrSize + 5);
+                $pdf->Cell($qrSize, 4, 'Digital Verification', 0, 1, 'C');
+
+                Log::info('Added unique digital signature QR code', [
+                    'certificate_number' => $nomorSertif,
+                    'template_id' => $template->id,
+                    'qr_data' => $qrData,
+                    'qr_position' => ['x' => $qrX, 'y' => $qrY, 'size' => $qrSize]
+                ]);
+            } else {
+                Log::info('QR code generation skipped (showQrCode = false)', [
+                    'certificate_number' => $nomorSertif,
+                    'template_id' => $template->id
+                ]);
+            }
         } catch (\Exception $e) {
             Log::error('Failed to add digital signature QR code', [
                 'certificate_number' => $nomorSertif,

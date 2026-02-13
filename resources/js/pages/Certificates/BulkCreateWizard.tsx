@@ -7,6 +7,7 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -87,6 +88,7 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
         templateSertifId: '',
         excel_file: null as File | null,
         variable_positions: [] as VariablePosition[],
+        show_qr_code: true, // Default: show QR code
     });
 
     // Load PDF when template is selected
@@ -348,6 +350,14 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
 
 
         info('Sedang memproses sertifikat...');
+
+        // Debug: Log form data before submission
+        console.log('Form data being submitted:', {
+            templateSertifId: data.templateSertifId,
+            excel_file: data.excel_file?.name,
+            show_qr_code: data.show_qr_code,
+            passphrase: data.passphrase ? '***' : null
+        });
 
         post(routes.certificates.generateFromExcel(), {
             forceFormData: true,
@@ -755,7 +765,27 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                         )}
                                     </div>
 
-
+                                    {/* QR Code Toggle */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center space-x-2 rounded-lg border border-gray-200 p-4">
+                                            <Checkbox
+                                                id="show_qr_code"
+                                                checked={data.show_qr_code}
+                                                onCheckedChange={(checked) => setData('show_qr_code', checked as boolean)}
+                                            />
+                                            <div className="grid gap-1.5 leading-none">
+                                                <label
+                                                    htmlFor="show_qr_code"
+                                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                                >
+                                                    Tampilkan QR Code
+                                                </label>
+                                                <p className="text-sm text-muted-foreground">
+                                                    QR code untuk verifikasi sertifikat akan ditambahkan di sertifikat
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
 
                                     <div className="flex gap-2">
                                         <Button

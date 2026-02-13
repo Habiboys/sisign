@@ -25,15 +25,60 @@ class TemplateSertifController extends Controller
         $this->encryptionService = $encryptionService;
     }
 
-    public function index()
+    public function index(Request $request)
     {
-        $templates = TemplateSertif::with('review')
-            ->latest('created_at')
-            ->paginate(10);
+        $query = TemplateSertif::with('review')
+            ->latest('created_at');
+
+        // Search filter
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhere('description', 'like', "%{$search}%");
+            });
+        }
+
+        // Filter by Review Status
+        if ($request->filled('review_status') && $request->review_status !== 'all') {
+            $status = $request->review_status;
+            $query->whereHas('review', function ($q) use ($status) {
+                $q->where('status', $status);
+            });
+        }
+
+        // Filter by Signed Status
+        if ($request->filled('signed_status') && $request->signed_status !== 'all') {
+            $status = $request->signed_status;
+            if ($status === 'signed') {
+                $query->whereNotNull('signed_template_path');
+            } elseif ($status === 'unsigned') {
+                $query->whereNull('signed_template_path')
+                      ->whereDoesntHave('signers', function ($q) {
+                          $q->where('is_signed', true);
+                      });
+            } elseif ($status === 'partial') {
+                 $query->whereNull('signed_template_path')
+                       ->whereHas('signers', function ($q) {
+                           $q->where('is_signed', true);
+                       });
+            }
+        }
+
+        // Pagination
+        $perPage = $request->input('per_page', 10);
+        if ($perPage === 'all') {
+            $templates = $query->paginate(9999);
+        } else {
+            $templates = $query->paginate((int) $perPage);
+        }
 
         return Inertia::render('Templates/Index', [
             'templates' => $templates,
-            'user' => Auth::user()
+            'user' => Auth::user(),
+            'search' => $request->search ?? '',
+            'review_status' => $request->review_status ?? 'all',
+            'signed_status' => $request->signed_status ?? 'all',
         ]);
     }
 

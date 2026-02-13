@@ -18,6 +18,15 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/pagination';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import {
     Table,
     TableBody,
@@ -35,10 +44,12 @@ import {
     Eye,
     FileText,
     Plus,
+    Search,
     Trash2,
+    X,
     XCircle,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface User {
     id: string;
@@ -87,10 +98,41 @@ interface Props {
         meta: any;
     };
     user: User;
+    search?: string;
+    review_status?: string;
+    signed_status?: string;
 }
 
-export default function DocumentsIndex({ documents, user }: Props) {
+export default function DocumentsIndex({ documents, user, search = '', review_status = 'all', signed_status = 'all' }: Props) {
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState<string>(search);
+    const [reviewStatus, setReviewStatus] = useState<string>(review_status);
+    const [signedStatus, setSignedStatus] = useState<string>(signed_status);
+    const [perPage, setPerPage] = useState<string>(String(documents.meta?.per_page || 10));
+
+    // Debounced search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (searchQuery !== search) {
+                router.get(
+                    routes.documents.index(),
+                    {
+                        search: searchQuery || undefined,
+                        per_page: perPage,
+                        review_status: reviewStatus,
+                        signed_status: signedStatus,
+                    },
+                    {
+                        preserveState: true,
+                        preserveScroll: true,
+                        only: ['documents', 'search', 'review_status', 'signed_status']
+                    }
+                );
+            }
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
 
     // Helper function to check if document is truly signed
     // Helper function to check if document has a signed file (at least one signature)
@@ -181,6 +223,126 @@ export default function DocumentsIndex({ documents, user }: Props) {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
+                        {/* Search and Filters */}
+                        <div className="flex flex-col md:flex-row gap-4 mb-6 justify-between items-end md:items-center">
+                            <div className="flex flex-col md:flex-row gap-2 md:items-center w-full md:w-auto">
+                                {/* Per Page */}
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-gray-500 whitespace-nowrap">Show</span>
+                                    <Select
+                                        value={perPage}
+                                        onValueChange={(value) => {
+                                            setPerPage(value);
+                                            router.get(
+                                                routes.documents.index(),
+                                                {
+                                                    per_page: value,
+                                                    search: searchQuery || undefined,
+                                                    review_status: reviewStatus,
+                                                    signed_status: signedStatus,
+                                                },
+                                                {
+                                                    preserveState: true,
+                                                    preserveScroll: false,
+                                                }
+                                            );
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-[70px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="10">10</SelectItem>
+                                            <SelectItem value="25">25</SelectItem>
+                                            <SelectItem value="50">50</SelectItem>
+                                            <SelectItem value="all">All</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Review Status Filter */}
+                                <Select
+                                    value={reviewStatus}
+                                    onValueChange={(value) => {
+                                        setReviewStatus(value);
+                                        router.get(
+                                            routes.documents.index(),
+                                            {
+                                                review_status: value,
+                                                signed_status: signedStatus,
+                                                per_page: perPage,
+                                                search: searchQuery || undefined,
+                                            },
+                                            {
+                                                preserveState: true,
+                                                preserveScroll: true,
+                                            }
+                                        );
+                                    }}
+                                >
+                                    <SelectTrigger className="w-full md:w-[150px]">
+                                        <SelectValue placeholder="Status Review" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">Semua Review</SelectItem>
+                                        <SelectItem value="pending">Menunggu</SelectItem>
+                                        <SelectItem value="approved">Disetujui</SelectItem>
+                                        <SelectItem value="rejected">Ditolak</SelectItem>
+                                    </SelectContent>
+                                </Select>
+
+                                {/* Signed Status Filter */}
+                                <Select
+                                    value={signedStatus}
+                                    onValueChange={(value) => {
+                                        setSignedStatus(value);
+                                        router.get(
+                                            routes.documents.index(),
+                                            {
+                                                review_status: reviewStatus,
+                                                signed_status: value,
+                                                per_page: perPage,
+                                                search: searchQuery || undefined,
+                                            },
+                                            {
+                                                preserveState: true,
+                                                preserveScroll: true,
+                                            }
+                                        );
+                                    }}
+                                >
+                                    <SelectTrigger className="w-full md:w-[150px]">
+                                        <SelectValue placeholder="Status TTD" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">Semua TTD</SelectItem>
+                                        <SelectItem value="signed">Sudah TTD</SelectItem>
+                                        <SelectItem value="partial">Sebagian TTD</SelectItem>
+                                        <SelectItem value="unsigned">Belum TTD</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Search */}
+                            <div className="relative w-full md:w-72">
+                                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                                <Input
+                                    placeholder="Cari dokumen..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="pl-10 pr-10"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
                         <Table>
                             <TableHeader>
                                 <TableRow>
@@ -318,6 +480,10 @@ export default function DocumentsIndex({ documents, user }: Props) {
                             </div>
                         )}
                     </CardContent>
+                    {/* Pagination */}
+                    <div className="p-4 pt-0">
+                        <Pagination links={documents.links} meta={documents.meta} />
+                    </div>
                 </Card>
             </div>
         </AppLayout>

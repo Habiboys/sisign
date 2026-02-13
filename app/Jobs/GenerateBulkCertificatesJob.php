@@ -22,16 +22,18 @@ class GenerateBulkCertificatesJob implements ShouldQueue
     protected $row;
     protected $userId;
     protected $passphrase;
+    protected $showQrCode;
 
     /**
      * Create a new job instance.
      */
-    public function __construct(TemplateSertif $template, array $row, string|int $userId, ?string $passphrase = null)
+    public function __construct(TemplateSertif $template, array $row, string|int $userId, ?string $passphrase = null, bool $showQrCode = true)
     {
         $this->template = $template;
         $this->row = $row;
         $this->userId = $userId;
         $this->passphrase = $passphrase;
+        $this->showQrCode = $showQrCode;
     }
 
     /**
@@ -48,7 +50,7 @@ class GenerateBulkCertificatesJob implements ShouldQueue
             // We need to expose a method in CertificateService to handle a single row from Excel
             // For now, I will implement the logic here calling a new method in service
             
-            $certificateService->processSingleExcelRow($this->template, $this->row, $this->passphrase);
+            $certificateService->processSingleExcelRow($this->template, $this->row, $this->passphrase, $this->showQrCode);
             
         } catch (\Exception $e) {
             Log::error('Failed to generate certificate in job', [
