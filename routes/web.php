@@ -15,12 +15,15 @@ Route::get('verify-document/{document}', [App\Http\Controllers\SignatureControll
 Route::get('verify-template/{template}', [App\Http\Controllers\TemplateSertifController::class, 'verifyTemplate'])->name('templates.verify');
 Route::get('verify-certificate/{certificate}', [App\Http\Controllers\SertifikatController::class, 'verifyCertificate'])->name('certificates.verify');
 
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', [App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
 
     // Documents
     Route::resource('documents', App\Http\Controllers\DocumentController::class);
     Route::post('documents/{document}/review', [App\Http\Controllers\DocumentController::class, 'review'])->name('documents.review');
+
+    // Users
+    Route::resource('users', App\Http\Controllers\UserController::class);
 
     // Templates
     Route::resource('templates', App\Http\Controllers\TemplateSertifController::class);

@@ -17,7 +17,8 @@ import {
     FileCheck,
     FileText,
     LayoutGrid,
-    Settings
+    Settings,
+    Users
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
@@ -52,6 +53,15 @@ const getMainNavItems = (userRole: string): NavItem[] => {
     }
 
 
+
+    // Only show user management for admin
+    if (userRole === 'admin') {
+        baseItems.push({
+            title: 'Users',
+            href: '/users',
+            icon: Users,
+        });
+    }
 
     // Add Settings link for all users
     baseItems.push({
