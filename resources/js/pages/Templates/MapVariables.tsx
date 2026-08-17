@@ -1,3 +1,4 @@
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router, useForm } from '@inertiajs/react';
-import { Plus, Save, Trash2, X } from 'lucide-react';
+import { GripVertical, Plus, Save, Settings2, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface User {
@@ -387,15 +388,15 @@ export default function TemplatesMapVariables({ template, user }: Props) {
     return (
         <AppLayout>
             <Head title={`Map Variables - ${template.title}`} />
-            <div className="flex h-full flex-1 flex-col gap-6 overflow-x-auto rounded-xl p-6">
-                <div className="flex items-center justify-between">
+            <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900">
+                        <h1 className="text-2xl font-bold text-gray-900">
                             Mapping Variabel Template
                         </h1>
-                        <p className="text-gray-600">
-                            Tambahkan variabel lalu seret (drag) langsung di
-                            PDF untuk mengatur posisinya
+                        <p className="text-sm text-gray-600">
+                            Tambahkan variabel, lalu seret langsung di PDF
+                            untuk mengatur posisinya.
                         </p>
                     </div>
                     <div className="flex gap-2">
@@ -414,6 +415,28 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                             <Save className="mr-2 h-4 w-4" />
                             Simpan
                         </Button>
+                    </div>
+                </div>
+
+                {/* 3-step guide so the flow is obvious at a glance */}
+                <div className="grid grid-cols-1 gap-2 rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-gray-700 sm:grid-cols-3 sm:text-sm">
+                    <div className="flex items-start gap-2">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                            1
+                        </span>
+                        <span>Tambahkan variabel dari daftar standar atau ketik nama sendiri.</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                            2
+                        </span>
+                        <span>Seret titik warna di PDF untuk memindahkan posisinya.</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                            3
+                        </span>
+                        <span>Klik variabel di daftar untuk atur ukuran, font & rata teks.</span>
                     </div>
                 </div>
 
@@ -478,10 +501,11 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                             />
                                         </div>
                                     </div>
-                                    <p className="text-sm text-gray-500">
+                                    <p className="flex items-center gap-1.5 text-sm text-gray-500">
+                                        <GripVertical className="h-4 w-4 shrink-0 text-gray-400" />
                                         {isAddingVariable
                                             ? `Klik pada PDF untuk menambahkan variabel "${newVariableName}"`
-                                            : 'Seret (drag) titik merah/biru untuk memindahkan posisi variabel, atau klik untuk memilih & mengatur font-nya.'}
+                                            : 'Seret titik merah/biru untuk memindahkan posisi variabel, atau klik salah satu untuk memilihnya.'}
                                     </p>
                                 </div>
                             </CardContent>
@@ -535,132 +559,165 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                             <Plus className="h-4 w-4" />
                                         </Button>
                                     </div>
+                                    {isAddingVariable && (
+                                        <p className="text-xs text-blue-600">
+                                            Sekarang klik posisi di PDF untuk
+                                            menempatkan "{newVariableName}".
+                                        </p>
+                                    )}
                                 </div>
 
                                 {/* Variable List */}
-                                <div className="space-y-3 max-h-96 overflow-y-auto">
-                                    {variables.map((variable, index) => (
-                                        <Card
-                                            key={index}
-                                            onClick={() =>
-                                                setSelectedVariable(
-                                                    selectedVariable === index
-                                                        ? null
-                                                        : index,
-                                                )
-                                            }
-                                            className={`cursor-pointer p-3 transition-colors ${selectedVariable === index
-                                                ? 'border-blue-500 bg-blue-50'
-                                                : 'hover:border-gray-300'
-                                                }`}
-                                        >
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label className="font-semibold">
-                                                        {variable.name}
-                                                    </Label>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleDeleteVariable(index);
-                                                        }}
-                                                    >
-                                                        <Trash2 className="h-4 w-4 text-red-500" />
-                                                    </Button>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-2 text-xs">
-                                                    <div>
-                                                        <span className="text-gray-500">X:</span>{' '}
-                                                        {Math.round(variable.x)}
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-gray-500">Y:</span>{' '}
-                                                        {Math.round(variable.y)}
-                                                    </div>
-                                                </div>
-                                                <div
-                                                    className="space-y-2"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <div>
-                                                        <Label className="text-xs">
-                                                            Ukuran Font
-                                                        </Label>
-                                                        <Input
-                                                            type="number"
-                                                            min="8"
-                                                            max="72"
-                                                            value={variable.fontSize || 12}
-                                                            onChange={(e) =>
-                                                                handleUpdateVariable(
-                                                                    index,
-                                                                    'fontSize',
-                                                                    parseInt(e.target.value) || 12
-                                                                )
-                                                            }
-                                                            className="h-8 text-xs"
+                                <div className="max-h-[28rem] space-y-2 overflow-y-auto">
+                                    {variables.map((variable, index) => {
+                                        const isSelected = selectedVariable === index;
+                                        return (
+                                            <Card
+                                                key={index}
+                                                onClick={() =>
+                                                    setSelectedVariable(
+                                                        isSelected ? null : index,
+                                                    )
+                                                }
+                                                className={`cursor-pointer gap-0 p-3 transition-colors ${isSelected
+                                                    ? 'border-blue-500 bg-blue-50 shadow-sm'
+                                                    : 'hover:border-gray-300'
+                                                    }`}
+                                            >
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div className="flex min-w-0 items-center gap-2">
+                                                        <span
+                                                            className={`h-2.5 w-2.5 shrink-0 rounded-full ${isSelected ? 'bg-blue-500' : 'bg-red-500'}`}
                                                         />
+                                                        <span className="truncate font-medium text-gray-900">
+                                                            {variable.name}
+                                                        </span>
                                                     </div>
-                                                    <div>
-                                                        <Label className="text-xs">Jenis Font</Label>
-                                                        <Select
-                                                            value={variable.fontFamily || 'Arial'}
-                                                            onValueChange={(value) =>
-                                                                handleUpdateVariable(
-                                                                    index,
-                                                                    'fontFamily',
-                                                                    value
-                                                                )
-                                                            }
+                                                    <div className="flex shrink-0 items-center gap-1">
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="hidden text-[10px] font-normal text-gray-500 sm:inline-flex"
                                                         >
-                                                            <SelectTrigger className="h-8 text-xs">
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="Arial">Arial</SelectItem>
-                                                                <SelectItem value="Times">Times</SelectItem>
-                                                                <SelectItem value="Courier">Courier</SelectItem>
-                                                                <SelectItem value="Helvetica">Helvetica</SelectItem>
-                                                                <SelectItem value="Times-Roman">Times Roman</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div>
-                                                        <Label className="text-xs">Alignment</Label>
-                                                        <Select
-                                                            value={variable.alignment || 'C'}
-                                                            onValueChange={(value: 'L' | 'C' | 'R') =>
-                                                                handleUpdateVariable(
-                                                                    index,
-                                                                    'alignment',
-                                                                    value
-                                                                )
-                                                            }
+                                                            {variable.fontSize || 12}px
+                                                        </Badge>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-7 w-7 p-0"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedVariable(
+                                                                    isSelected ? null : index,
+                                                                );
+                                                            }}
+                                                            title="Pengaturan font & posisi"
                                                         >
-                                                            <SelectTrigger className="h-8 text-xs">
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="L">Kiri</SelectItem>
-                                                                <SelectItem value="C">Tengah</SelectItem>
-                                                                <SelectItem value="R">Kanan</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
+                                                            <Settings2 className="h-4 w-4 text-gray-500" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-7 w-7 p-0"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDeleteVariable(index);
+                                                            }}
+                                                            title="Hapus variabel"
+                                                        >
+                                                            <Trash2 className="h-4 w-4 text-red-500" />
+                                                        </Button>
                                                     </div>
                                                 </div>
-                                                {selectedVariable === index && (
-                                                    <p className="text-xs text-blue-600">
-                                                        Terpilih — seret
-                                                        titik biru di PDF
-                                                        untuk memindahkan
-                                                        posisinya.
-                                                    </p>
+
+                                                {/* Detail settings only shown for the selected variable, to avoid
+                                                    a wall of controls when there are many variables. */}
+                                                {isSelected && (
+                                                    <div
+                                                        className="mt-3 space-y-3 border-t border-blue-200 pt-3"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <p className="text-xs text-blue-600">
+                                                            Seret titik biru di
+                                                            PDF untuk
+                                                            memindahkan
+                                                            posisinya.
+                                                        </p>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div>
+                                                                <Label className="text-xs">
+                                                                    Ukuran Font
+                                                                </Label>
+                                                                <Input
+                                                                    type="number"
+                                                                    min="8"
+                                                                    max="72"
+                                                                    value={variable.fontSize || 12}
+                                                                    onChange={(e) =>
+                                                                        handleUpdateVariable(
+                                                                            index,
+                                                                            'fontSize',
+                                                                            parseInt(e.target.value) || 12
+                                                                        )
+                                                                    }
+                                                                    className="h-8 text-xs"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <Label className="text-xs">Rata Teks</Label>
+                                                                <Select
+                                                                    value={variable.alignment || 'C'}
+                                                                    onValueChange={(value: 'L' | 'C' | 'R') =>
+                                                                        handleUpdateVariable(
+                                                                            index,
+                                                                            'alignment',
+                                                                            value
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    <SelectTrigger className="h-8 text-xs">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="L">Kiri</SelectItem>
+                                                                        <SelectItem value="C">Tengah</SelectItem>
+                                                                        <SelectItem value="R">Kanan</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <Label className="text-xs">Jenis Font</Label>
+                                                            <Select
+                                                                value={variable.fontFamily || 'Arial'}
+                                                                onValueChange={(value) =>
+                                                                    handleUpdateVariable(
+                                                                        index,
+                                                                        'fontFamily',
+                                                                        value
+                                                                    )
+                                                                }
+                                                            >
+                                                                <SelectTrigger className="h-8 text-xs">
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="Arial">Arial</SelectItem>
+                                                                    <SelectItem value="Times">Times</SelectItem>
+                                                                    <SelectItem value="Courier">Courier</SelectItem>
+                                                                    <SelectItem value="Helvetica">Helvetica</SelectItem>
+                                                                    <SelectItem value="Times-Roman">Times Roman</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
+                                                            <div>X: {Math.round(variable.x)}</div>
+                                                            <div>Y: {Math.round(variable.y)}</div>
+                                                        </div>
+                                                    </div>
                                                 )}
-                                            </div>
-                                        </Card>
-                                    ))}
+                                            </Card>
+                                        );
+                                    })}
                                 </div>
 
                                 {variables.length === 0 && (

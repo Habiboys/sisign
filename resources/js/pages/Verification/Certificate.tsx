@@ -1,15 +1,4 @@
 import { Head } from '@inertiajs/react';
-import {
-    Award,
-    Calendar,
-    CheckCircle,
-    FileText,
-    Mail,
-    Shield,
-    User,
-    XCircle,
-} from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface Recipient {
     name: string;
@@ -34,6 +23,15 @@ interface VerificationProps {
     message?: string;
 }
 
+function Field({ label, value, color }: { label: string; value: React.ReactNode; color?: string }) {
+    return (
+        <div>
+            <p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p>
+            <p className={`text-sm ${color ?? 'text-gray-900'}`}>{value}</p>
+        </div>
+    );
+}
+
 export default function VerificationCertificate({
     certificate,
     success,
@@ -42,215 +40,117 @@ export default function VerificationCertificate({
     const isTampered = certificate?.verification_status === 'tampered';
     const isVerified = success && certificate !== null && !isTampered;
 
+    const statusLabel = isTampered
+        ? 'Sertifikat telah diubah'
+        : isVerified
+          ? 'Sertifikat terverifikasi'
+          : 'Sertifikat tidak ditemukan';
+
+    const statusColor = isTampered ? 'text-red-600' : isVerified ? 'text-green-600' : 'text-gray-500';
+
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-white">
             <Head title={`Verifikasi Sertifikat - ${certificate?.certificate_number || 'Tidak Ditemukan'}`} />
 
-            <div className="mx-auto max-w-4xl px-4 py-8">
+            <div className="mx-auto max-w-2xl px-6 py-10">
                 {/* Header */}
-                <div className="mb-8 text-center">
-                    <div className="mb-4 flex justify-center">
-                        {isVerified ? (
-                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-                                <CheckCircle className="h-8 w-8 text-green-600" />
-                            </div>
-                        ) : (
-                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
-                                <XCircle className="h-8 w-8 text-red-600" />
-                            </div>
-                        )}
-                    </div>
-
-                    <h1 className="mb-2 text-3xl font-bold text-gray-900">
-                        {isTampered
-                            ? 'Sertifikat Telah Diubah'
-                            : isVerified
-                                ? 'Sertifikat Terverifikasi'
-                                : 'Sertifikat Tidak Ditemukan'}
+                <div className="mb-6">
+                    <p className={`text-sm font-medium ${statusColor}`}>{statusLabel}</p>
+                    <h1 className="mt-0.5 text-xl font-semibold text-gray-900">
+                        {certificate?.certificate_number ?? 'Sertifikat tidak ditemukan'}
                     </h1>
-
-                    <p className="text-lg text-gray-600">
-                        {message ||
+                    <p className="mt-1 text-sm text-gray-500">
+                        {message ??
                             (isVerified
-                                ? 'Sertifikat ini valid dan dapat dipercaya'
-                                : 'Sertifikat tidak ditemukan atau tidak valid')}
+                                ? 'Sertifikat ini valid dan dapat dipercaya.'
+                                : 'Sertifikat tidak ditemukan atau tidak valid.')}
                     </p>
-
                     {isTampered && (
-                        <div className="mx-auto mt-4 max-w-xl rounded-lg border border-red-200 bg-red-50 p-4 text-left text-sm text-red-800">
-                            File PDF sertifikat yang tersimpan di server saat ini
-                            tidak cocok dengan hash yang tercatat saat diterbitkan.
-                            Isi sertifikat kemungkinan telah dimodifikasi.
-                        </div>
+                        <p className="mt-3 border-l-2 border-red-500 pl-3 text-xs text-gray-600">
+                            File PDF sertifikat di server tidak cocok dengan hash saat
+                            diterbitkan — isi sertifikat kemungkinan telah dimodifikasi.
+                        </p>
                     )}
                 </div>
 
                 {certificate && (
                     <>
-                        {/* Certificate Info Card */}
-                        <Card className="mb-6">
-                            <CardHeader>
-                                <CardTitle className="flex items-center">
-                                    <Award className="mr-3 h-6 w-6 text-blue-600" />
-                                    Informasi Sertifikat
-                                </CardTitle>
-                                <CardDescription>
-                                    Detail informasi sertifikat yang diverifikasi
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                    <div>
-                                        <label className="text-sm font-medium text-gray-500">
-                                            Nomor Sertifikat
-                                        </label>
-                                        <p className="text-lg font-semibold text-gray-900">
-                                            {certificate.certificate_number}
-                                        </p>
-                                    </div>
+                        {/* Info gabungan: sertifikat + verifikasi */}
+                        <div className="grid grid-cols-3 gap-x-4 gap-y-4 border-t border-gray-200 py-5">
+                            <Field label="Template" value={certificate.template_title} />
+                            <Field label="Diterbitkan" value={certificate.issued_at} />
+                            <Field
+                                label="Status Verifikasi"
+                                value={
+                                    certificate.verification_status === 'valid'
+                                        ? 'Valid'
+                                        : certificate.verification_status === 'tampered'
+                                          ? 'Telah diubah'
+                                          : certificate.verification_status === 'file_missing'
+                                            ? 'File tidak ditemukan'
+                                            : 'Tidak diketahui'
+                                }
+                                color={
+                                    certificate.verification_status === 'valid'
+                                        ? 'text-green-600'
+                                        : certificate.verification_status === 'tampered'
+                                          ? 'text-red-600'
+                                          : 'text-yellow-600'
+                                }
+                            />
 
-                                    <div>
-                                        <label className="text-sm font-medium text-gray-500">
-                                            Template
-                                        </label>
-                                        <p className="text-lg font-semibold text-gray-900">
-                                            {certificate.template_title}
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-sm font-medium text-gray-500">
-                                            Tanggal Diterbitkan
-                                        </label>
-                                        <p className="text-lg font-semibold text-gray-900">
-                                            {certificate.issued_at}
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-sm font-medium text-gray-500">
-                                            Status Verifikasi
-                                        </label>
-                                        <p
-                                            className={`text-lg font-semibold ${certificate.verification_status === 'valid'
-                                                ? 'text-green-600'
-                                                : certificate.verification_status === 'tampered'
-                                                    ? 'text-red-600'
-                                                    : 'text-yellow-600'
-                                                }`}
-                                        >
-                                            {certificate.verification_status === 'valid'
-                                                ? '✓ Valid'
-                                                : certificate.verification_status === 'tampered'
-                                                    ? '✗ Telah Diubah'
-                                                    : certificate.verification_status === 'file_missing'
-                                                        ? 'File Tidak Ditemukan'
-                                                        : 'Tidak Diketahui'}
-                                        </p>
-                                    </div>
+                            <Field label="Waktu Verifikasi" value={certificate.verified_at} />
+                            <Field
+                                label="ID Sertifikat"
+                                value={<span className="font-mono text-xs">{certificate.certificate_id}</span>}
+                            />
+                            {certificate.content_hash && (
+                                <div className="col-span-3">
+                                    <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                                        Hash Integritas (SHA-256)
+                                    </p>
+                                    <p className="break-all font-mono text-xs text-gray-600">
+                                        {certificate.content_hash}
+                                    </p>
                                 </div>
-                            </CardContent>
-                        </Card>
+                            )}
+                        </div>
 
-                        {/* Recipients Card */}
+                        {/* Recipients - baris kompak */}
                         {certificate.recipients && certificate.recipients.length > 0 && (
-                            <Card className="mb-6">
-                                <CardHeader>
-                                    <CardTitle className="flex items-center">
-                                        <User className="mr-3 h-6 w-6 text-green-600" />
-                                        Penerima Sertifikat
-                                    </CardTitle>
-                                    <CardDescription>
-                                        Daftar penerima sertifikat ini
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="space-y-4">
-                                        {certificate.recipients.map((recipient, index) => (
-                                            <div
-                                                key={index}
-                                                className="rounded-lg border border-gray-200 p-4"
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <p className="font-semibold text-gray-900">
-                                                            {recipient.name}
-                                                        </p>
-                                                        <p className="flex items-center text-sm text-gray-500">
-                                                            <Mail className="mr-2 h-4 w-4" />
-                                                            {recipient.email}
-                                                        </p>
-                                                    </div>
-                                                    {recipient.issued_at && (
-                                                        <div className="text-right">
-                                                            <p className="text-sm text-gray-500">
-                                                                {recipient.issued_at}
-                                                            </p>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-
-                        {/* Verification Info */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center">
-                                    <Shield className="mr-3 h-6 w-6 text-gray-600" />
-                                    Informasi Verifikasi
-                                </CardTitle>
-                                <CardDescription>
-                                    Detail verifikasi sertifikat
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                    <div>
-                                        <label className="text-sm font-medium text-gray-500">
-                                            Waktu Verifikasi
-                                        </label>
-                                        <p className="text-lg font-semibold text-gray-900">
-                                            {certificate.verified_at}
-                                        </p>
-                                    </div>
-
-                                    {certificate.content_hash && (
-                                        <div>
-                                            <label className="text-sm font-medium text-gray-500">
-                                                Hash Integritas (SHA-256)
-                                            </label>
-                                            <p className="font-mono text-xs text-gray-600 break-all">
-                                                {certificate.content_hash}
-                                            </p>
+                            <div className="border-t border-gray-200 py-5">
+                                <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-400">
+                                    Penerima
+                                </p>
+                                <div className="space-y-1.5">
+                                    {certificate.recipients.map((recipient, index) => (
+                                        <div
+                                            key={index}
+                                            className="flex items-center justify-between text-sm"
+                                        >
+                                            <span className="text-gray-900">
+                                                {recipient.name}
+                                                <span className="ml-1.5 text-xs text-gray-400">
+                                                    {recipient.email}
+                                                </span>
+                                            </span>
+                                            {recipient.issued_at && (
+                                                <span className="text-xs text-gray-400">
+                                                    {recipient.issued_at}
+                                                </span>
+                                            )}
                                         </div>
-                                    )}
-
-                                    <div>
-                                        <label className="text-sm font-medium text-gray-500">
-                                            ID Sertifikat
-                                        </label>
-                                        <p className="font-mono text-xs text-gray-600 break-all">
-                                            {certificate.certificate_id}
-                                        </p>
-                                    </div>
+                                    ))}
                                 </div>
-                            </CardContent>
-                        </Card>
+                            </div>
+                        )}
                     </>
                 )}
 
-                {/* Footer */}
-                <div className="mt-8 text-center">
-                    <p className="text-sm text-gray-500">
-                        Sertifikat ini diverifikasi menggunakan sistem verifikasi digital yang aman
-                    </p>
-                </div>
+                <p className="border-t border-gray-200 pt-4 text-center text-xs text-gray-400">
+                    Diverifikasi menggunakan sistem verifikasi digital SISIGN.
+                </p>
             </div>
         </div>
     );
 }
-

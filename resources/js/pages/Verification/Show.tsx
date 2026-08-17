@@ -1,31 +1,11 @@
 import { Head } from '@inertiajs/react';
-import {
-    Calendar,
-    CheckCircle,
-    FileText,
-    Shield,
-    User,
-    XCircle,
-} from 'lucide-react';
-
-interface User {
-    id: string;
-    name: string;
-    email: string;
-}
 
 interface Signature {
     id: string;
     type: 'physical' | 'digital';
     user_name: string;
     signed_at: string;
-    position: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        page: number;
-    };
+    position: { x: number; y: number; width: number; height: number; page: number };
 }
 
 interface Signer {
@@ -54,6 +34,24 @@ interface VerificationProps {
     message?: string;
 }
 
+function formatDate(value: string, withTime = true) {
+    return new Date(value).toLocaleDateString('id-ID', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
+    });
+}
+
+function Field({ label, value, color }: { label: string; value: React.ReactNode; color?: string }) {
+    return (
+        <div>
+            <p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p>
+            <p className={`text-sm ${color ?? 'text-gray-900'}`}>{value}</p>
+        </div>
+    );
+}
+
 export default function VerificationShow({
     document,
     signatures,
@@ -67,328 +65,136 @@ export default function VerificationShow({
     const isTampered = verification_status === 'tampered';
     const isVerified = verification_status === 'signed' && success;
 
+    const statusLabel = isTampered
+        ? 'Dokumen telah diubah'
+        : isVerified
+          ? 'Dokumen terverifikasi'
+          : 'Dokumen tidak terverifikasi';
+
+    const statusColor = isTampered ? 'text-red-600' : isVerified ? 'text-green-600' : 'text-gray-500';
+
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-white">
             <Head title={`Verifikasi Dokumen - ${document.title}`} />
 
-            <div className="mx-auto max-w-4xl px-4 py-8">
+            <div className="mx-auto max-w-2xl px-6 py-10">
                 {/* Header */}
-                <div className="mb-8 text-center">
-                    <div className="mb-4 flex justify-center">
-                        {isVerified ? (
-                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-                                <CheckCircle className="h-8 w-8 text-green-600" />
-                            </div>
-                        ) : (
-                            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
-                                <XCircle className="h-8 w-8 text-red-600" />
-                            </div>
-                        )}
-                    </div>
-
-                    <h1 className="mb-2 text-3xl font-bold text-gray-900">
-                        {isTampered
-                            ? 'Dokumen Telah Diubah'
-                            : isVerified
-                                ? 'Dokumen Terverifikasi'
-                                : 'Dokumen Tidak Terverifikasi'}
-                    </h1>
-
-                    <p className="text-lg text-gray-600">
+                <div className="mb-6">
+                    <p className={`text-sm font-medium ${statusColor}`}>{statusLabel}</p>
+                    <h1 className="mt-0.5 text-xl font-semibold text-gray-900">{document.title}</h1>
+                    <p className="mt-1 text-sm text-gray-500">
                         {message ??
                             (isVerified
-                                ? 'Dokumen ini telah ditandatangani secara resmi dan dapat dipercaya'
-                                : 'Dokumen ini belum ditandatangani atau tidak valid')}
+                                ? 'Dokumen ini telah ditandatangani secara resmi dan dapat dipercaya.'
+                                : 'Dokumen ini belum ditandatangani atau tidak valid.')}
                     </p>
-
                     {isTampered && (
-                        <div className="mx-auto mt-4 max-w-xl rounded-lg border border-red-200 bg-red-50 p-4 text-left text-sm text-red-800">
-                            File PDF yang tersimpan di server saat ini tidak
-                            cocok dengan hash yang tercatat pada saat
-                            penandatanganan. Isi dokumen kemungkinan telah
-                            dimodifikasi setelah ditandatangani.
-                        </div>
+                        <p className="mt-3 border-l-2 border-red-500 pl-3 text-xs text-gray-600">
+                            File PDF di server tidak cocok dengan hash saat penandatanganan —
+                            isi dokumen kemungkinan telah dimodifikasi.
+                        </p>
                     )}
                 </div>
 
-                {/* Document Info Card */}
-                <div className="mb-6 rounded-lg bg-white p-6 shadow-md">
-                    <div className="mb-4 flex items-center">
-                        <FileText className="mr-3 h-6 w-6 text-blue-600" />
-                        <h2 className="text-xl font-semibold text-gray-900">
-                            Informasi Dokumen
-                        </h2>
-                    </div>
+                {/* Info gabungan: dokumen + verifikasi, 3 kolom */}
+                <div className="grid grid-cols-3 gap-x-4 gap-y-4 border-t border-gray-200 py-5">
+                    <Field label="Nomor Dokumen" value={document.number} />
+                    <Field
+                        label="Status"
+                        value={
+                            document.status === 'approved'
+                                ? 'Disetujui'
+                                : document.status === 'rejected'
+                                  ? 'Ditolak'
+                                  : 'Menunggu'
+                        }
+                    />
+                    <Field label="Dibuat" value={formatDate(document.created_at, false)} />
 
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <div>
-                            <label className="text-sm font-medium text-gray-500">
-                                Judul Dokumen
-                            </label>
-                            <p className="text-lg text-gray-900">
-                                {document.title}
-                            </p>
-                        </div>
+                    <Field
+                        label="Verifikasi"
+                        value={isVerified ? 'Terverifikasi' : 'Tidak terverifikasi'}
+                        color={isVerified ? 'text-green-600' : 'text-red-600'}
+                    />
+                    <Field label="Jml. Tanda Tangan" value={signatures.length} />
+                    <Field label="Waktu Verifikasi" value={formatDate(verified_at)} />
 
-                        <div>
-                            <label className="text-sm font-medium text-gray-500">
-                                Nomor Dokumen
-                            </label>
-                            <p className="text-lg text-gray-900">
-                                {document.number}
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="text-sm font-medium text-gray-500">
-                                Tanggal Dibuat
-                            </label>
-                            <p className="text-lg text-gray-900">
-                                {new Date(
-                                    document.created_at,
-                                ).toLocaleDateString('id-ID', {
-                                    year: 'numeric',
-                                    month: 'long',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                })}
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="text-sm font-medium text-gray-500">
-                                Status
-                            </label>
-                            <span
-                                className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${document.status === 'approved'
-                                    ? 'bg-green-100 text-green-800'
-                                    : document.status === 'rejected'
-                                        ? 'bg-red-100 text-red-800'
-                                        : 'bg-yellow-100 text-yellow-800'
-                                    }`}
-                            >
-                                {document.status === 'approved'
-                                    ? 'Disetujui'
-                                    : document.status === 'rejected'
-                                        ? 'Ditolak'
-                                        : 'Menunggu'}
-                            </span>
-                        </div>
-                    </div>
+                    {integrity_status && integrity_status !== 'unknown' && (
+                        <Field
+                            label="Integritas File"
+                            value={
+                                integrity_status === 'valid'
+                                    ? 'Hash cocok'
+                                    : integrity_status === 'tampered'
+                                      ? 'File diubah'
+                                      : 'File tidak ditemukan'
+                            }
+                            color={integrity_status === 'valid' ? 'text-green-600' : 'text-red-600'}
+                        />
+                    )}
+                    <Field label="ID Dokumen" value={<span className="font-mono text-xs">{document.id}</span>} />
                 </div>
 
-                {/* Signers Status Card */}
-                <div className="mb-6 rounded-lg bg-white p-6 shadow-md">
-                    <div className="mb-4 flex items-center">
-                        <User className="mr-3 h-6 w-6 text-purple-600" />
-                        <h2 className="text-xl font-semibold text-gray-900">
-                            Status Penandatangan
-                        </h2>
-                    </div>
-
-                    <div className="space-y-4">
-                        {signers && signers.length > 0 ? (
-                            signers.map((signer) => (
+                {/* Signers - baris kompak, bukan kartu */}
+                <div className="border-t border-gray-200 py-5">
+                    <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-400">
+                        Penandatangan
+                    </p>
+                    {signers && signers.length > 0 ? (
+                        <div className="space-y-1.5">
+                            {signers.map((signer) => (
                                 <div
                                     key={signer.user_id}
-                                    className="flex items-center justify-between rounded-lg border border-gray-200 p-4"
+                                    className="flex items-center justify-between text-sm"
                                 >
-                                    <div className="flex items-center">
-                                        <div
-                                            className={`mr-3 flex h-8 w-8 items-center justify-center rounded-full ${signer.is_signed
-                                                ? 'bg-green-100 text-green-600'
-                                                : 'bg-gray-100 text-gray-500'
-                                                }`}
-                                        >
-                                            <User className="h-4 w-4" />
-                                        </div>
-                                        <div>
-                                            <p className="font-medium text-gray-900">
-                                                {signer.name}
-                                            </p>
-                                            <p className="text-sm text-gray-500">
-                                                Penandatangan Ke-{signer.sign_order}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        {signer.is_signed ? (
-                                            <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                                                <CheckCircle className="mr-1 h-3 w-3" />
-                                                Sudah TTD
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                                                <XCircle className="mr-1 h-3 w-3" />
-                                                Belum TTD
-                                            </span>
-                                        )}
-                                    </div>
+                                    <span className="text-gray-900">
+                                        {signer.sign_order}. {signer.name}
+                                    </span>
+                                    <span
+                                        className={
+                                            signer.is_signed ? 'text-green-600' : 'text-gray-400'
+                                        }
+                                    >
+                                        {signer.is_signed ? 'Sudah TTD' : 'Belum TTD'}
+                                    </span>
                                 </div>
-                            ))
-                        ) : (
-                            <p className="text-gray-500">
-                                Tidak ada data penandatangan.
-                            </p>
-                        )}
-                    </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-400">Tidak ada data penandatangan.</p>
+                    )}
                 </div>
 
-                {/* Signatures Card */}
+                {/* Signatures - baris kompak */}
                 {signatures.length > 0 && (
-                    <div className="mb-6 rounded-lg bg-white p-6 shadow-md">
-                        <div className="mb-4 flex items-center">
-                            <Shield className="mr-3 h-6 w-6 text-green-600" />
-                            <h2 className="text-xl font-semibold text-gray-900">
-                                Tanda Tangan
-                            </h2>
-                        </div>
-
-                        <div className="space-y-4">
-                            {signatures.map((signature, index) => (
+                    <div className="border-t border-gray-200 py-5">
+                        <p className="mb-2 text-[11px] uppercase tracking-wide text-gray-400">
+                            Riwayat Tanda Tangan
+                        </p>
+                        <div className="space-y-1.5">
+                            {signatures.map((signature) => (
                                 <div
                                     key={signature.id}
-                                    className="rounded-lg border border-gray-200 p-4"
+                                    className="flex items-center justify-between text-sm"
                                 >
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center">
-                                            <div
-                                                className={`mr-3 h-3 w-3 rounded-full ${signature.type ===
-                                                    'physical'
-                                                    ? 'bg-blue-500'
-                                                    : 'bg-green-500'
-                                                    }`}
-                                            ></div>
-                                            <div>
-                                                <p className="font-medium text-gray-900">
-                                                    {signature.user_name}
-                                                </p>
-                                                <p className="text-sm text-gray-500">
-                                                    {signature.type ===
-                                                        'physical'
-                                                        ? 'Tanda Tangan Fisik'
-                                                        : 'Tanda Tangan Digital'}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <div className="text-right">
-                                            <p className="text-sm text-gray-500">
-                                                {new Date(
-                                                    signature.signed_at,
-                                                ).toLocaleDateString('id-ID', {
-                                                    year: 'numeric',
-                                                    month: 'long',
-                                                    day: 'numeric',
-                                                    hour: '2-digit',
-                                                    minute: '2-digit',
-                                                })}
-                                            </p>
-                                            <p className="text-xs text-gray-400">
-                                                Halaman{' '}
-                                                {signature.position.page}
-                                            </p>
-                                        </div>
-                                    </div>
+                                    <span className="text-gray-900">
+                                        {signature.user_name}
+                                        <span className="ml-1.5 text-xs text-gray-400">
+                                            ({signature.type === 'physical' ? 'fisik' : 'digital'}, hal. {signature.position.page})
+                                        </span>
+                                    </span>
+                                    <span className="text-xs text-gray-400">
+                                        {formatDate(signature.signed_at)}
+                                    </span>
                                 </div>
                             ))}
                         </div>
                     </div>
                 )}
 
-                {/* Verification Info */}
-                <div className="rounded-lg bg-white p-6 shadow-md">
-                    <div className="mb-4 flex items-center">
-                        <Calendar className="mr-3 h-6 w-6 text-gray-600" />
-                        <h2 className="text-xl font-semibold text-gray-900">
-                            Informasi Verifikasi
-                        </h2>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <div>
-                            <label className="text-sm font-medium text-gray-500">
-                                Status Verifikasi
-                            </label>
-                            <p
-                                className={`text-lg font-medium ${isVerified
-                                    ? 'text-green-600'
-                                    : 'text-red-600'
-                                    }`}
-                            >
-                                {isVerified
-                                    ? '✓ Terverifikasi'
-                                    : '✗ Tidak Terverifikasi'}
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="text-sm font-medium text-gray-500">
-                                Waktu Verifikasi
-                            </label>
-                            <p className="text-lg text-gray-900">
-                                {new Date(verified_at).toLocaleDateString(
-                                    'id-ID',
-                                    {
-                                        year: 'numeric',
-                                        month: 'long',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        second: '2-digit',
-                                    },
-                                )}
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="text-sm font-medium text-gray-500">
-                                Jumlah Tanda Tangan
-                            </label>
-                            <p className="text-lg text-gray-900">
-                                {signatures.length}
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="text-sm font-medium text-gray-500">
-                                ID Dokumen
-                            </label>
-                            <p className="font-mono text-sm text-gray-600">
-                                {document.id}
-                            </p>
-                        </div>
-
-                        {integrity_status && integrity_status !== 'unknown' && (
-                            <div>
-                                <label className="text-sm font-medium text-gray-500">
-                                    Integritas File
-                                </label>
-                                <p
-                                    className={`text-lg font-medium ${integrity_status === 'valid'
-                                        ? 'text-green-600'
-                                        : 'text-red-600'
-                                        }`}
-                                >
-                                    {integrity_status === 'valid'
-                                        ? '✓ File Asli (Hash Cocok)'
-                                        : integrity_status === 'tampered'
-                                            ? '✗ File Telah Diubah'
-                                            : 'File Tidak Ditemukan'}
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Footer */}
-                <div className="mt-8 text-center">
-                    <p className="text-sm text-gray-500">
-                        Dokumen ini diverifikasi menggunakan sistem tanda tangan
-                        digital yang aman
-                    </p>
-                </div>
+                <p className="border-t border-gray-200 pt-4 text-center text-xs text-gray-400">
+                    Diverifikasi menggunakan sistem tanda tangan digital SISIGN.
+                </p>
             </div>
         </div>
     );

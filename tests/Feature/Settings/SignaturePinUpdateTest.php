@@ -6,7 +6,9 @@ use App\Models\EncryptionKey;
 use App\Models\User;
 use App\Services\EncryptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class SignaturePinUpdateTest extends TestCase
@@ -122,5 +124,27 @@ class SignaturePinUpdateTest extends TestCase
 
         $publicKey = $encryptionService->getPublicKey($user->fresh());
         $this->assertTrue($encryptionService->verifySignature($data, $signature, $publicKey));
+    }
+
+    public function test_uploading_a_signature_image_does_not_require_a_pin_when_a_key_pair_already_exists(): void
+    {
+        Storage::fake('public');
+
+        $user = User::factory()->create();
+        app(EncryptionService::class)->generateKeyPair($user, '111111');
+        $user->pin = bcrypt('111111');
+        $user->save();
+
+        $response = $this
+            ->actingAs($user)
+            ->post(route('profile.signature.update'), [
+                'signature_image' => UploadedFile::fake()->image('signature.png'),
+            ]);
+
+        $response->assertSessionHasNoErrors();
+
+        $user->refresh();
+        $this->assertNotNull($user->signature_image);
+        Storage::disk('public')->assertExists($user->signature_image);
     }
 }

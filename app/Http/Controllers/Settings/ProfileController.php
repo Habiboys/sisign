@@ -61,10 +61,12 @@ class ProfileController extends Controller
             'pin' => ['nullable', 'string', 'digits:6', 'confirmed'],
             'pin_confirmation' => ['required_with:pin', 'string', 'digits:6'],
             // Required to re-authenticate and decrypt the existing private key
-            // when the user already has one, so it can be re-encrypted with the
-            // new PIN instead of being replaced (which would invalidate every
-            // digital signature created with the old key pair).
-            'current_pin' => [$hasExistingKey ? 'required' : 'nullable', 'string', 'digits:6'],
+            // when the user already has one AND is actually changing the PIN,
+            // so it can be re-encrypted with the new PIN instead of being
+            // replaced (which would invalidate every digital signature
+            // created with the old key pair). Not required for signature
+            // image-only updates.
+            'current_pin' => [$hasExistingKey ? 'required_with:pin' : 'nullable', 'string', 'digits:6'],
             'signature_image' => ['nullable', 'image', 'max:2048'], // 2MB max
         ]);
 

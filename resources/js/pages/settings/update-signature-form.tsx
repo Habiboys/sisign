@@ -48,31 +48,22 @@ function PinInput({
     );
 }
 
-export default function UpdateSignatureForm({
-    className = '',
-}: {
-    className?: string;
-}) {
+/**
+ * Signature PIN form. Fully independent from the image upload form below —
+ * submitting this never touches `signature_image`, and submitting the image
+ * form never requires a PIN field.
+ */
+function PinSettingsForm() {
     const { auth } = usePage<SharedData>().props;
-    const signatureImageInput = useRef<HTMLInputElement>(null);
     const hasExistingPin = Boolean(auth.user.has_pin);
 
-    const {
-        data,
-        setData,
-        post,
-        errors,
-        processing,
-        recentlySuccessful,
-        reset,
-    } = useForm({
-        pin: '',
-        pin_confirmation: '',
-        current_pin: '',
-        signature_image: null as File | null,
-    });
+    const { data, setData, post, errors, processing, recentlySuccessful, reset } =
+        useForm({
+            pin: '',
+            pin_confirmation: '',
+            current_pin: '',
+        });
 
-    const [previewImage, setPreviewImage] = useState<string | null>(null);
     const [rateLimitError, setRateLimitError] = useState<string | null>(null);
 
     const submit: FormEventHandler = (e) => {
@@ -81,13 +72,7 @@ export default function UpdateSignatureForm({
 
         post('/settings/profile/signature', {
             preserveScroll: true,
-            onSuccess: () => {
-                reset();
-                setPreviewImage(null);
-                if (signatureImageInput.current) {
-                    signatureImageInput.current.value = '';
-                }
-            },
+            onSuccess: () => reset(),
             onError: (formErrors) => {
                 // Throttled requests (429) don't carry Laravel validation errors,
                 // so an empty error bag here means the request was rate-limited.
@@ -109,6 +94,143 @@ export default function UpdateSignatureForm({
         });
     };
 
+    return (
+        <section>
+            <HeadingSmall
+                title="PIN Tanda Tangan"
+                description="PIN 6 digit ini melindungi kunci tanda tangan digital Anda."
+            />
+
+            <form onSubmit={submit} className="mt-6 space-y-6">
+                {rateLimitError && (
+                    <p className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+                        {rateLimitError}
+                    </p>
+                )}
+
+                {hasExistingPin && (
+                    <div className="grid gap-2">
+                        <Label htmlFor="current_pin">PIN Saat Ini</Label>
+
+                        <PinInput
+                            id="current_pin"
+                            value={data.current_pin}
+                            onChange={(value) => setData('current_pin', value)}
+                            disabled={processing}
+                        />
+
+                        <p className="text-sm text-gray-500">
+                            Diperlukan untuk memverifikasi identitas Anda
+                            sebelum mengganti PIN.
+                        </p>
+
+                        <InputError
+                            className="mt-2"
+                            message={errors.current_pin}
+                        />
+                    </div>
+                )}
+
+                <div className="grid gap-2">
+                    <Label htmlFor="pin">
+                        {hasExistingPin ? 'PIN Baru' : 'Buat PIN'} (6 Digit)
+                    </Label>
+
+                    <PinInput
+                        id="pin"
+                        value={data.pin}
+                        onChange={(value) => setData('pin', value)}
+                        disabled={processing}
+                    />
+
+                    <p className="text-sm text-gray-500">
+                        {hasExistingPin
+                            ? 'Kosongkan jika tidak ingin mengganti PIN.'
+                            : 'PIN ini akan diminta setiap kali Anda menandatangani dokumen.'}
+                    </p>
+
+                    <InputError className="mt-2" message={errors.pin} />
+                </div>
+
+                {data.pin && (
+                    <div className="grid gap-2">
+                        <Label htmlFor="pin_confirmation">
+                            Konfirmasi PIN Baru
+                        </Label>
+
+                        <PinInput
+                            id="pin_confirmation"
+                            value={data.pin_confirmation}
+                            onChange={(value) =>
+                                setData('pin_confirmation', value)
+                            }
+                            disabled={processing}
+                        />
+
+                        <p className="text-sm text-gray-500">
+                            Masukkan ulang PIN baru untuk memastikan sama.
+                        </p>
+
+                        <InputError
+                            className="mt-2"
+                            message={errors.pin_confirmation}
+                        />
+                    </div>
+                )}
+
+                <div className="flex items-center gap-4">
+                    <Button disabled={processing || !data.pin}>
+                        Simpan PIN
+                    </Button>
+
+                    <Transition
+                        show={recentlySuccessful}
+                        enter="transition ease-in-out"
+                        enterFrom="opacity-0"
+                        leave="transition ease-in-out"
+                        leaveTo="opacity-0"
+                    >
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                            Tersimpan.
+                        </p>
+                    </Transition>
+                </div>
+            </form>
+        </section>
+    );
+}
+
+/**
+ * Signature image upload form. Fully independent from the PIN form above —
+ * this never sends any PIN field, so it can never be blocked by a PIN check.
+ */
+function SignatureImageForm() {
+    const { auth } = usePage<SharedData>().props;
+    const signatureImageInput = useRef<HTMLInputElement>(null);
+
+    const { data, setData, post, errors, processing, recentlySuccessful, reset } =
+        useForm({
+            signature_image: null as File | null,
+        });
+
+    const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+    const submit: FormEventHandler = (e) => {
+        e.preventDefault();
+
+        post('/settings/profile/signature', {
+            preserveScroll: true,
+            forceFormData: true,
+            onSuccess: () => {
+                reset();
+                setPreviewImage(null);
+                if (signatureImageInput.current) {
+                    signatureImageInput.current.value = '';
+                }
+            },
+        });
+    };
+
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files ? e.target.files[0] : null;
         setData('signature_image', file);
@@ -125,101 +247,30 @@ export default function UpdateSignatureForm({
     };
 
     return (
-        <section className={className}>
+        <section>
             <HeadingSmall
-                title="Signature Settings"
-                description="Manage your PIN and signature image for signing documents."
+                title="Gambar Tanda Tangan"
+                description="Upload gambar tanda tangan untuk dipakai saat menandatangani dokumen."
             />
 
             <form onSubmit={submit} className="mt-6 space-y-6">
-                {rateLimitError && (
-                    <p className="rounded-md bg-red-50 p-3 text-sm text-red-600">
-                        {rateLimitError}
-                    </p>
-                )}
-
-                {hasExistingPin && (
-                    <div className="grid gap-2">
-                        <Label htmlFor="current_pin">Current PIN</Label>
-
-                        <PinInput
-                            id="current_pin"
-                            value={data.current_pin}
-                            onChange={(value) => setData('current_pin', value)}
-                            disabled={processing}
-                        />
-
-                        <p className="text-sm text-gray-500">
-                            Required to confirm your identity before changing
-                            your PIN.
-                        </p>
-
-                        <InputError
-                            className="mt-2"
-                            message={errors.current_pin}
-                        />
-                    </div>
-                )}
-
                 <div className="grid gap-2">
-                    <Label htmlFor="pin">
-                        {hasExistingPin ? 'New Signature PIN' : 'Signature PIN'}{' '}
-                        (6 Digits)
-                    </Label>
+                    <Label htmlFor="signature_image">Gambar Tanda Tangan</Label>
 
-                    <PinInput
-                        id="pin"
-                        value={data.pin}
-                        onChange={(value) => setData('pin', value)}
-                        disabled={processing}
-                    />
-
-                    <p className="text-sm text-gray-500">
-                        Leave blank if you don't want to change your PIN.
-                    </p>
-
-                    <InputError className="mt-2" message={errors.pin} />
-                </div>
-
-                {data.pin && (
-                    <div className="grid gap-2">
-                        <Label htmlFor="pin_confirmation">
-                            Confirm New PIN
-                        </Label>
-
-                        <PinInput
-                            id="pin_confirmation"
-                            value={data.pin_confirmation}
-                            onChange={(value) =>
-                                setData('pin_confirmation', value)
-                            }
-                            disabled={processing}
-                        />
-
-                        <p className="text-sm text-gray-500">
-                            Re-enter the new PIN to make sure it matches.
-                        </p>
-
-                        <InputError
-                            className="mt-2"
-                            message={errors.pin_confirmation}
-                        />
-                    </div>
-                )}
-
-                <div className="grid gap-2">
-                    <Label htmlFor="signature_image">Signature Image</Label>
-
-                    {/* Show Preview of Selected Image OR Current Image */}
                     {(previewImage || auth.user.signature_image) && (
                         <div className="mb-4">
                             <p className="mb-2 text-sm text-gray-500">
-                                {previewImage ? 'New Signature Preview:' : 'Current Signature:'}
+                                {previewImage
+                                    ? 'Pratinjau baru:'
+                                    : 'Tanda tangan saat ini:'}
                             </p>
                             <img
-                                src={previewImage || `/storage/${auth.user.signature_image}`}
+                                src={
+                                    previewImage ||
+                                    `/storage/${auth.user.signature_image}`
+                                }
                                 alt="Signature Preview"
-                                className="h-20 w-auto border border-gray-200 rounded p-2 bg-white object-contain"
+                                className="h-20 w-auto rounded border border-gray-200 bg-white object-contain p-2"
                             />
                         </div>
                     )}
@@ -234,7 +285,8 @@ export default function UpdateSignatureForm({
                     />
 
                     <p className="text-sm text-gray-500">
-                        Upload a transparent PNG image of your signature. Max 2MB.
+                        Upload gambar PNG transparan dari tanda tangan Anda.
+                        Maks 2MB.
                     </p>
 
                     <InputError
@@ -244,7 +296,9 @@ export default function UpdateSignatureForm({
                 </div>
 
                 <div className="flex items-center gap-4">
-                    <Button disabled={processing}>Save</Button>
+                    <Button disabled={processing || !data.signature_image}>
+                        Simpan Gambar
+                    </Button>
 
                     <Transition
                         show={recentlySuccessful}
@@ -254,11 +308,25 @@ export default function UpdateSignatureForm({
                         leaveTo="opacity-0"
                     >
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                            Saved.
+                            Tersimpan.
                         </p>
                     </Transition>
                 </div>
             </form>
         </section>
+    );
+}
+
+export default function UpdateSignatureForm({
+    className = '',
+}: {
+    className?: string;
+}) {
+    return (
+        <div className={`space-y-8 ${className}`}>
+            <PinSettingsForm />
+            <div className="border-t border-gray-200 dark:border-gray-700" />
+            <SignatureImageForm />
+        </div>
     );
 }

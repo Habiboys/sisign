@@ -1,6 +1,5 @@
 import AlertModal from '@/components/ui/alert-modal';
 import { Button } from '@/components/ui/button';
-import ConfirmModal from '@/components/ui/confirm-modal';
 import { Input } from '@/components/ui/input';
 import {
     InputOTP,
@@ -22,7 +21,10 @@ import { type SharedData } from '@/types';
 import { usePage } from '@inertiajs/react';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
 import {
+    Check,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     ChevronUp,
     Eraser,
     Image,
@@ -166,6 +168,12 @@ export default function PDFCanvasViewer({
     // PIN is entered inside the confirmation modal, right before saving.
     const [confirmPin, setConfirmPin] = useState('');
 
+    // Tracks whether the user has drawn at least one stroke in the current
+    // signing session, so the "Lanjut" button only becomes active once
+    // there's something to save (and multi-stroke signatures - e.g. writing
+    // letter by letter - don't get interrupted after the first stroke).
+    const [hasDrawnSomething, setHasDrawnSomething] = useState(false);
+
     const { auth } = usePage<SharedData>().props;
     const { error, info } = useToast();
     const alertModal = useModal();
@@ -271,14 +279,6 @@ export default function PDFCanvasViewer({
 
             ctx.lineTo(x, y);
             ctx.stroke();
-
-            console.log('Drawing at:', {
-                x,
-                y,
-                mode: drawingMode,
-                color: penColor,
-                size: penSize,
-            });
         },
         [isDrawing, canEdit, drawingMode, penColor, penSize],
     );
@@ -286,11 +286,14 @@ export default function PDFCanvasViewer({
     const stopDrawing = useCallback(() => {
         if (!isDrawing) return;
         setIsDrawing(false);
-        // A short touch/mouse-up ends a stroke: if the user drew at least one
-        // stroke, offer the PIN step. Deferring keeps a single tap from
-        // advancing the flow.
-        setFlowStep('pin');
-    }, [isDrawing]);
+        // Signatures are often written stroke by stroke (letter by letter),
+        // so don't jump to the next step after just one stroke - only mark
+        // that there's content, and let the user explicitly tap "Lanjut"
+        // when they're done drawing.
+        if (drawingMode === 'pen') {
+            setHasDrawnSomething(true);
+        }
+    }, [isDrawing, drawingMode]);
 
     const clearCanvas = useCallback(() => {
         const canvas = canvasRef.current;
@@ -344,13 +347,6 @@ export default function PDFCanvasViewer({
         },
         [alertModal, saveCanvasContent],
     );
-
-    // After the user has drawn their signature, move them to the PIN step
-    const finishDrawing = useCallback(() => {
-        if (!isDrawing) return;
-        setIsDrawing(false);
-        setFlowStep('pin');
-    }, [isDrawing]);
 
     // Go back from the PIN step to redo the signature
     const backToDrawing = useCallback(() => {
@@ -422,13 +418,6 @@ export default function PDFCanvasViewer({
             const x = (clientX - rect.left) * scaleX;
             const y = (clientY - rect.top) * scaleY;
 
-            console.log('Stamp clicked at:', {
-                x,
-                y,
-                canvasSize: `${canvas.width}x${canvas.height}`,
-                scaleX,
-                scaleY,
-            });
             setStampPosition({ x, y });
         },
         [drawingMode, stampImage],
@@ -446,12 +435,6 @@ export default function PDFCanvasViewer({
             const newSize = Math.max(50, Math.min(300, stampSize + delta));
 
             setStampSize(newSize);
-
-            console.log('Stamp size changed:', {
-                oldSize: stampSize,
-                newSize,
-                delta,
-            });
         },
         [drawingMode, stampImage, stampSize],
     );
@@ -463,6 +446,7 @@ export default function PDFCanvasViewer({
         }
         // Reset canvas content state
         setPreviousCanvasContent(null);
+        setHasDrawnSomething(false);
     }, [clearCanvas, stampImage, removeStamp]);
 
     const handleUseSavedSignature = useCallback(() => {
@@ -585,20 +569,12 @@ export default function PDFCanvasViewer({
         const data = imageData.data;
 
         let hasContent = false;
-        let pixelCount = 0;
         for (let i = 0; i < data.length; i += 4) {
-            const alpha = data[i + 3];
-            if (alpha > 0) {
+            if (data[i + 3] > 0) {
                 hasContent = true;
-                pixelCount++;
+                break;
             }
         }
-
-        console.log('Canvas check:', {
-            hasContent,
-            pixelCount,
-            canvasSize: `${canvas.width}x${canvas.height}`,
-        });
 
         if (!hasContent) {
             info('Silakan buat tanda tangan atau gunakan stempel terlebih dahulu.');
@@ -623,39 +599,18 @@ export default function PDFCanvasViewer({
         try {
             const signatureData = canvas.toDataURL('image/png');
 
-            console.log('Signature data length:', signatureData.length);
-            console.log(
-                'Signature data preview:',
-                signatureData.substring(0, 100),
-            );
-            console.log('Canvas dimensions:', {
-                width: canvas.width,
-                height: canvas.height,
-            });
-
             // Create signed PDF with signature embedded
             const response = await fetch(pdfUrl);
             const existingPdfBytes = await response.arrayBuffer();
-
-            console.log('PDF loaded successfully:', {
-                originalSize: existingPdfBytes.byteLength,
-            });
 
             const pdfDoc = await PDFDocument.load(existingPdfBytes);
             const pages = pdfDoc.getPages();
             const page = pages[currentPage - 1];
 
-            console.log('PDF page loaded:', {
-                currentPage,
-                totalPages: pages.length,
-                pageSize: page.getSize(),
-            });
-
             const { width: pageWidth, height: pageHeight } = page.getSize();
 
             // Embed signature image
             const signatureImage = await pdfDoc.embedPng(signatureData);
-            console.log('Signature embedded successfully');
 
             // Canvas is rendered with scale 1.5, so we need to account for that
             // Canvas size = viewport size (with 1.5x scale)
@@ -670,13 +625,6 @@ export default function PDFCanvasViewer({
             const scaledWidth = signatureWidth * canvasToPageScale;
             const scaledHeight = signatureHeight * canvasToPageScale;
 
-            console.log('Signature positioning:', {
-                canvasSize: `${canvas.width}x${canvas.height}`,
-                pageSize: `${pageWidth}x${pageHeight}`,
-                canvasToPageScale: canvasToPageScale,
-                scaledSize: `${scaledWidth}x${scaledHeight}`,
-            });
-
             // Position signature at the exact same position as drawn on canvas
             page.drawImage(signatureImage, {
                 x: 0,
@@ -684,7 +632,6 @@ export default function PDFCanvasViewer({
                 width: scaledWidth,
                 height: scaledHeight,
             });
-            console.log('Signature drawn on PDF');
 
             // Embed stamp if exists
             if (stampImage && stampPosition) {
@@ -692,12 +639,10 @@ export default function PDFCanvasViewer({
                 try {
                     // Try PNG first
                     stampImageEmbedded = await pdfDoc.embedPng(stampImage);
-                    console.log('Stamp embedded as PNG successfully');
                 } catch (pngError) {
                     try {
                         // Try JPEG if PNG fails
                         stampImageEmbedded = await pdfDoc.embedJpg(stampImage);
-                        console.log('Stamp embedded as JPEG successfully');
                     } catch (jpegError) {
                         console.error('Failed to embed stamp:', {
                             pngError,
@@ -718,23 +663,12 @@ export default function PDFCanvasViewer({
                 const pdfDrawWidth = scaledStampSize;
                 const pdfDrawHeight = scaledStampSize / ratio;
 
-                console.log('Stamp positioning:', {
-                    originalPosition: stampPosition,
-                    originalSize: stampSize,
-                    scaledPosition: { x: scaledStampX, y: scaledStampY },
-                    scaledSize: scaledStampSize,
-                    ratio,
-                    pdfDrawWidth,
-                    pdfDrawHeight,
-                });
-
                 page.drawImage(stampImageEmbedded, {
                     x: scaledStampX - pdfDrawWidth / 2,
                     y: scaledStampY - pdfDrawHeight / 2,
                     width: pdfDrawWidth,
                     height: pdfDrawHeight,
                 });
-                console.log('Stamp drawn on PDF');
             }
 
             // Embed QR code if exists (only for documents, templates are handled by backend)
@@ -748,7 +682,6 @@ export default function PDFCanvasViewer({
                 // Generate QR code image with verification link (with logo)
                 const baseUrl = window.location.origin;
                 const qrCodeData = `${baseUrl}/verify-document/${documentId}`;
-                console.log('QR Code data:', qrCodeData);
                 const qrCodeImageData = await generateQrCodeWithLogo(
                     qrCodeData,
                     120,
@@ -756,7 +689,6 @@ export default function PDFCanvasViewer({
 
                 // Embed QR code image
                 const qrCodeImage = await pdfDoc.embedPng(qrCodeImageData);
-                console.log('QR code embedded successfully');
 
                 // Add QR code at bottom right
                 page.drawImage(qrCodeImage, {
@@ -765,19 +697,14 @@ export default function PDFCanvasViewer({
                     width: 80,
                     height: 80,
                 });
-                console.log('QR code drawn on PDF');
             }
 
             // Save the signed PDF with object streams disabled for FPDI compatibility
             const pdfBytes = await pdfDoc.save({ useObjectStreams: false });
-            console.log('PDF saved successfully:', {
-                size: pdfBytes.length,
-            });
 
             // Convert to base64 for backend storage (chunked method to avoid call stack overflow)
             let signedPdfBase64;
             try {
-                console.log('Converting PDF to base64...');
                 const uint8Array = new Uint8Array(pdfBytes);
                 let binaryString = '';
                 const chunkSize = 8192;
@@ -791,33 +718,18 @@ export default function PDFCanvasViewer({
                 }
 
                 signedPdfBase64 = btoa(binaryString);
-                console.log('Base64 conversion successful');
             } catch (err: any) {
                 console.error('Base64 conversion failed:', err);
                 throw err;
             }
 
-            console.log('PDF data size:', {
-                originalBytes: pdfBytes.length,
-                base64Length: signedPdfBase64.length,
-            });
-
             // Test if PDF is valid by trying to reload it
             try {
-                console.log('Testing PDF validation...');
-                const testPdf = await PDFDocument.load(pdfBytes);
-                console.log('PDF validation successful:', {
-                    pageCount: testPdf.getPageCount(),
-                });
+                await PDFDocument.load(pdfBytes);
             } catch (err: any) {
                 console.error('PDF validation failed:', err);
                 const errorMessage =
                     err instanceof Error ? err.message : 'Unknown error';
-                console.error('PDF validation error details:', {
-                    message: errorMessage,
-                    stack: err instanceof Error ? err.stack : undefined,
-                    name: err instanceof Error ? err.name : 'Unknown',
-                });
                 error('PDF yang dihasilkan rusak: ' + errorMessage);
                 setIsProcessing(false);
                 return;
@@ -926,8 +838,65 @@ export default function PDFCanvasViewer({
         redrawStamp();
     }, [redrawStamp]);
 
+    // Simple 3-step progress indicator so users always know where they are.
+    const steps: { key: 'choose' | 'sign' | 'pin'; label: string }[] = [
+        { key: 'choose', label: 'Pilih Cara' },
+        { key: 'sign', label: 'Tanda Tangan' },
+        { key: 'pin', label: 'Konfirmasi' },
+    ];
+    const currentStepIndex = steps.findIndex((s) => s.key === flowStep);
+
     return (
         <div className="space-y-4">
+            {canEdit && (
+                <div className="flex items-center justify-center gap-1 py-1 sm:gap-2">
+                    {steps.map((step, idx) => {
+                        const isDone = idx < currentStepIndex;
+                        const isActive = idx === currentStepIndex;
+                        return (
+                            <div key={step.key} className="flex items-center">
+                                <div className="flex flex-col items-center gap-1">
+                                    <div
+                                        className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors sm:h-8 sm:w-8 ${
+                                            isDone
+                                                ? 'bg-green-600 text-white'
+                                                : isActive
+                                                  ? 'bg-blue-600 text-white ring-4 ring-blue-100'
+                                                  : 'bg-gray-100 text-gray-400'
+                                        }`}
+                                    >
+                                        {isDone ? (
+                                            <Check className="h-4 w-4" />
+                                        ) : (
+                                            idx + 1
+                                        )}
+                                    </div>
+                                    <span
+                                        className={`text-[10px] font-medium sm:text-xs ${
+                                            isActive
+                                                ? 'text-blue-700'
+                                                : isDone
+                                                  ? 'text-green-700'
+                                                  : 'text-gray-400'
+                                        }`}
+                                    >
+                                        {step.label}
+                                    </span>
+                                </div>
+                                {idx < steps.length - 1 && (
+                                    <div
+                                        className={`mx-1 mb-4 h-0.5 w-8 rounded sm:mx-2 sm:w-16 ${
+                                            idx < currentStepIndex
+                                                ? 'bg-green-500'
+                                                : 'bg-gray-200'
+                                        }`}
+                                    />
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
 
             <div className="relative flex justify-center">
                 <div className="relative inline-block">
@@ -969,6 +938,12 @@ export default function PDFCanvasViewer({
                             onWheel={handleWheel}
                         />
                     )}
+                    {canEdit && drawingMode === 'stamp' && stampImage && (
+                        <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 rounded-full bg-gray-900/80 px-3 py-1 text-[11px] font-medium text-white shadow-lg sm:text-xs">
+                            👆 Sentuh/klik dokumen untuk menempatkan posisi
+                            &middot; scroll untuk ukuran
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -976,105 +951,115 @@ export default function PDFCanvasViewer({
                 <div className="space-y-4">
                     {/* STEP 'choose': pick how to sign */}
                     {flowStep === 'choose' && (
-                        <div className="rounded-lg border-2 border-blue-100 bg-blue-50/50 p-3 sm:p-4">
-                            <p className="mb-2 text-sm font-semibold text-gray-800">
-                                1. Pilih cara tanda tangan
+                        <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+                            <p className="mb-3 text-sm font-semibold text-gray-800">
+                                Pilih cara tanda tangan Anda
                             </p>
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                <Button
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <button
                                     type="button"
-                                    variant="outline"
                                     onClick={handleUseSavedSignature}
-                                    className="h-auto justify-start gap-3 border-blue-300 bg-white px-4 py-3 text-left hover:bg-blue-50"
+                                    className="group flex items-start gap-3 rounded-xl border-2 border-emerald-200 bg-emerald-50/60 p-4 text-left transition-all hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-md active:scale-[0.98]"
                                 >
-                                    <Stamp className="h-5 w-5 shrink-0 text-blue-600" />
+                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 group-hover:bg-emerald-200">
+                                        <Stamp className="h-5 w-5" />
+                                    </span>
                                     <span>
-                                        <span className="block text-sm font-medium text-gray-900">
-                                            Pakai Tanda Tangan Tersimpan
+                                        <span className="block text-sm font-semibold text-gray-900">
+                                            Tanda Tangan Tersimpan
                                         </span>
-                                        <span className="block text-xs text-gray-500">
-                                            Gambar TTD yang sudah diupload di
-                                            profil
+                                        <span className="mt-0.5 block text-xs text-gray-500">
+                                            Pakai gambar TTD dari profil Anda
+                                            — paling cepat
                                         </span>
                                     </span>
-                                </Button>
-                                <Button
+                                </button>
+                                <button
                                     type="button"
-                                    variant="outline"
                                     onClick={() => {
                                         setDrawingMode('pen');
+                                        setHasDrawnSomething(false);
                                         setFlowStep('sign');
                                     }}
-                                    className="h-auto justify-start gap-3 border-blue-300 bg-white px-4 py-3 text-left hover:bg-blue-50"
+                                    className="group flex items-start gap-3 rounded-xl border-2 border-blue-200 bg-blue-50/60 p-4 text-left transition-all hover:border-blue-400 hover:bg-blue-50 hover:shadow-md active:scale-[0.98]"
                                 >
-                                    <PenTool className="h-5 w-5 shrink-0 text-blue-600" />
+                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 group-hover:bg-blue-200">
+                                        <PenTool className="h-5 w-5" />
+                                    </span>
                                     <span>
-                                        <span className="block text-sm font-medium text-gray-900">
-                                            Gambar Langsung di Layar
+                                        <span className="block text-sm font-semibold text-gray-900">
+                                            Gambar di Layar
                                         </span>
-                                        <span className="block text-xs text-gray-500">
-                                            Tulis pakai jari / mouse
+                                        <span className="mt-0.5 block text-xs text-gray-500">
+                                            Tulis langsung pakai jari / mouse
                                         </span>
                                     </span>
-                                </Button>
-                                <Button
+                                </button>
+                                <button
                                     type="button"
-                                    variant="outline"
                                     onClick={useBarcodeOnly}
-                                    className="h-auto justify-start gap-3 border-blue-300 bg-white px-4 py-3 text-left hover:bg-blue-50"
+                                    className="group flex items-start gap-3 rounded-xl border-2 border-purple-200 bg-purple-50/60 p-4 text-left transition-all hover:border-purple-400 hover:bg-purple-50 hover:shadow-md active:scale-[0.98]"
                                 >
-                                    <QrCode className="h-5 w-5 shrink-0 text-blue-600" />
+                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-700 group-hover:bg-purple-200">
+                                        <QrCode className="h-5 w-5" />
+                                    </span>
                                     <span>
-                                        <span className="block text-sm font-medium text-gray-900">
-                                            Letakkan Barcode / QR Verifikasi
+                                        <span className="block text-sm font-semibold text-gray-900">
+                                            Barcode / QR Verifikasi
                                         </span>
-                                        <span className="block text-xs text-gray-500">
-                                            Pilih posisi & ukuran QR di PDF
+                                        <span className="mt-0.5 block text-xs text-gray-500">
+                                            Cukup taruh QR, tanpa tanda
+                                            tangan tulisan
                                         </span>
                                     </span>
-                                </Button>
+                                </button>
                                 {auth.user.signature_image && (
-                                    <Button
+                                    <button
                                         type="button"
-                                        variant="outline"
                                         onClick={() => {
                                             document
                                                 .getElementById('stamp-upload')
                                                 ?.click();
                                         }}
-                                        className="h-auto justify-start gap-3 border-blue-300 bg-white px-4 py-3 text-left hover:bg-blue-50"
+                                        className="group flex items-start gap-3 rounded-xl border-2 border-amber-200 bg-amber-50/60 p-4 text-left transition-all hover:border-amber-400 hover:bg-amber-50 hover:shadow-md active:scale-[0.98]"
                                     >
-                                        <Image className="h-5 w-5 shrink-0 text-blue-600" />
+                                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 group-hover:bg-amber-200">
+                                            <Image className="h-5 w-5" />
+                                        </span>
                                         <span>
-                                            <span className="block text-sm font-medium text-gray-900">
+                                            <span className="block text-sm font-semibold text-gray-900">
                                                 Upload Stempel / Gambar
                                             </span>
-                                            <span className="block text-xs text-gray-500">
-                                                TTD digital, stempel resmi, dll
+                                            <span className="mt-0.5 block text-xs text-gray-500">
+                                                Stempel resmi atau gambar lain
                                             </span>
                                         </span>
-                                    </Button>
+                                    </button>
                                 )}
                             </div>
-                            <p className="mt-2 text-xs text-gray-500">
-                                Pilih salah satu cara di atas. Anda juga bisa
-                                mengkombinasikannya nanti (misal gambar + QR)
-                                melalui opsi lanjutan.
-                            </p>
                         </div>
                     )}
 
                     {/* STEP 'sign': draw (only after choosing manual) */}
                     {flowStep === 'sign' && (
-                        <div className="rounded-lg border-2 border-blue-100 bg-blue-50/50 p-3 sm:p-4">
-                            <p className="mb-2 text-sm font-semibold text-gray-800">
-                                1. Gambar tanda tangan di area PDF di atas
-                            </p>
-                            <p className="text-xs text-gray-500">
-                                Gunakan jari / mouse untuk menulis tanda tangan
-                                langsung di dokumen. Selesai menggambar akan
-                                otomatis lanjut ke langkah PIN.
-                            </p>
+                        <div className="rounded-xl border-2 border-blue-200 bg-blue-50/50 p-3 sm:p-4">
+                            <div className="flex items-start gap-2">
+                                <PenTool className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-800">
+                                        Gambar tanda tangan di area PDF di
+                                        atas
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-gray-500">
+                                        Anda bisa menggambar beberapa goresan
+                                        (misal huruf demi huruf), lalu tekan{' '}
+                                        <span className="font-medium text-gray-700">
+                                            Lanjut
+                                        </span>{' '}
+                                        jika sudah selesai.
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -1100,21 +1085,32 @@ export default function PDFCanvasViewer({
                                     onClick={() => setFlowStep('choose')}
                                     className="text-xs text-gray-500 sm:text-sm"
                                 >
-                                    Ganti cara tanda tangan
+                                    <ChevronLeft className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                    Ganti Cara
                                 </Button>
                                 <Button
                                     type="button"
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => setShowAdvancedTools((v) => !v)}
-                                    className="ml-auto text-xs text-gray-500 sm:text-sm"
+                                    className="text-xs text-gray-500 sm:text-sm"
                                 >
                                     {showAdvancedTools ? (
                                         <ChevronUp className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
                                     ) : (
                                         <ChevronDown className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
                                     )}
-                                    Opsi Lanjutan (stempel, warna, ukuran)
+                                    Opsi Lanjutan
+                                </Button>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => setFlowStep('pin')}
+                                    disabled={!hasDrawnSomething && !stampImage}
+                                    className="ml-auto gap-1 bg-blue-600 text-xs hover:bg-blue-700 sm:text-sm"
+                                >
+                                    Lanjut
+                                    <ChevronRight className="h-3 w-3 sm:h-4 sm:w-4" />
                                 </Button>
                             </>
                         )}
@@ -1325,15 +1321,22 @@ export default function PDFCanvasViewer({
 
                     {/* STEP 'pin': only shown once a signature has been drawn/placed */}
                     {flowStep === 'pin' && (
-                        <div className="sticky bottom-0 z-10 -mx-2 space-y-3 rounded-t-lg border-t-2 border-blue-100 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:relative sm:mx-0 sm:rounded-lg sm:border sm:border-gray-200 sm:bg-gray-50 sm:shadow-none sm:p-4">
-                            <p className="mb-2 text-sm font-semibold text-gray-800">
-                                2. Simpan tanda tangan
-                            </p>
-                            <p className="mb-3 text-xs text-gray-500">
-                                Tekan tombol di bawah, lalu masukkan PIN 6
-                                digit Anda di kotak konfirmasi untuk
-                                menyelesaikan tanda tangan.
-                            </p>
+                        <div className="sticky bottom-0 z-10 -mx-2 space-y-3 rounded-t-lg border-t-2 border-green-100 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:relative sm:mx-0 sm:rounded-xl sm:border sm:border-green-200 sm:bg-green-50/40 sm:shadow-none sm:p-4">
+                            <div className="flex items-start gap-2">
+                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700">
+                                    <Check className="h-4 w-4" />
+                                </span>
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-800">
+                                        Tanda tangan siap disimpan
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-gray-500">
+                                        Tekan tombol di bawah untuk membuka
+                                        kotak konfirmasi PIN dan
+                                        menyelesaikan proses.
+                                    </p>
+                                </div>
+                            </div>
                             <div className="flex items-center gap-2">
                                 <Button
                                     type="button"
@@ -1341,8 +1344,9 @@ export default function PDFCanvasViewer({
                                     size="lg"
                                     onClick={backToDrawing}
                                     disabled={isProcessing}
-                                    className="h-14 px-4 text-sm font-medium"
+                                    className="h-14 gap-1 px-4 text-sm font-medium"
                                 >
+                                    <ChevronLeft className="h-4 w-4" />
                                     Kembali
                                 </Button>
                                 <Button
@@ -1374,9 +1378,10 @@ export default function PDFCanvasViewer({
                             setCurrentPage(Math.max(1, currentPage - 1))
                         }
                         disabled={currentPage === 1}
-                        className="min-w-[60px] text-xs sm:min-w-[80px] sm:text-sm"
+                        className="min-w-[60px] gap-1 text-xs sm:min-w-[80px] sm:text-sm"
                     >
-                        <span className="hidden sm:inline">Previous</span>
+                        <ChevronLeft className="h-3 w-3 sm:h-4 sm:w-4" />
+                        <span className="hidden sm:inline">Sebelumnya</span>
                         <span className="sm:hidden">Prev</span>
                     </Button>
                     <Button
@@ -1388,16 +1393,13 @@ export default function PDFCanvasViewer({
                             )
                         }
                         disabled={currentPage === totalPages}
-                        className="min-w-[60px] text-xs sm:min-w-[80px] sm:text-sm"
+                        className="min-w-[60px] gap-1 text-xs sm:min-w-[80px] sm:text-sm"
                     >
-                        Next
+                        Selanjutnya
+                        <ChevronRight className="h-3 w-3 sm:h-4 sm:w-4" />
                     </Button>
                 </div>
             </div>
-
-
-
-
             <AlertModal
                 open={alertModal.isOpen}
                 onClose={alertModal.close}
@@ -1417,17 +1419,24 @@ export default function PDFCanvasViewer({
             >
                 <DialogContent className="sm:max-w-[440px]">
                     <DialogHeader>
-                        <DialogTitle>Konfirmasi Tanda Tangan</DialogTitle>
-                        <DialogDescription>
-                            Setelah disimpan, tanda tangan ini akan tercatat
-                            resmi pada{' '}
-                            {isTemplate ? 'template' : 'dokumen'} ini dan
-                            tidak dapat diedit. Tanda tangan hanya bisa dihapus
-                            selama belum ditandatangani lengkap oleh semua
-                            pihak. Masukkan PIN 6 digit Anda untuk
-                            menyelesaikan.
+                        <div className="mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+                            <Save className="h-6 w-6 text-green-700" />
+                        </div>
+                        <DialogTitle className="text-center">
+                            Konfirmasi Tanda Tangan
+                        </DialogTitle>
+                        <DialogDescription className="text-center">
+                            Masukkan PIN 6 digit Anda untuk menyelesaikan
+                            tanda tangan {isTemplate ? 'template' : 'dokumen'}{' '}
+                            ini.
                         </DialogDescription>
                     </DialogHeader>
+
+                    <div className="rounded-lg bg-amber-50 px-3 py-2 text-center text-xs text-amber-800">
+                        ⚠️ Setelah disimpan, tanda tangan tercatat resmi dan
+                        tidak dapat diedit. Hanya bisa dihapus selama belum
+                        ditandatangani lengkap oleh semua pihak.
+                    </div>
 
                     <div className="flex flex-col items-center gap-2 py-2">
                         <Label
@@ -1444,6 +1453,7 @@ export default function PDFCanvasViewer({
                             pattern={REGEXP_ONLY_DIGITS}
                             inputMode="numeric"
                             autoComplete="one-time-code"
+                            autoFocus
                         >
                             <InputOTPGroup>
                                 {Array.from({ length: 6 }, (_, index) => (
