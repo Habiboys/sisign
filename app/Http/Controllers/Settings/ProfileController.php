@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Settings;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Services\EncryptionService;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -42,7 +45,7 @@ class ProfileController extends Controller
 
     protected $encryptionService;
 
-    public function __construct(\App\Services\EncryptionService $encryptionService)
+    public function __construct(EncryptionService $encryptionService)
     {
         $this->encryptionService = $encryptionService;
     }
@@ -52,31 +55,53 @@ class ProfileController extends Controller
      */
     public function updateSignature(Request $request): RedirectResponse
     {
+        $hasExistingKey = $this->encryptionService->hasKeys($request->user());
+
         $request->validate([
-            'pin' => ['nullable', 'string', 'digits:6'],
+            'pin' => ['nullable', 'string', 'digits:6', 'confirmed'],
+            'pin_confirmation' => ['required_with:pin', 'string', 'digits:6'],
+            // Required to re-authenticate and decrypt the existing private key
+            // when the user already has one, so it can be re-encrypted with the
+            // new PIN instead of being replaced (which would invalidate every
+            // digital signature created with the old key pair).
+            'current_pin' => [$hasExistingKey ? 'required' : 'nullable', 'string', 'digits:6'],
             'signature_image' => ['nullable', 'image', 'max:2048'], // 2MB max
         ]);
 
         $user = $request->user();
 
         if ($request->filled('pin')) {
-            $user->pin = bcrypt($request->pin);
-            $user->save(); // Save user first
+            if ($hasExistingKey) {
+                if (! Hash::check($request->current_pin, $user->pin)) {
+                    return back()->withErrors(['current_pin' => 'PIN saat ini salah.']);
+                }
 
-            // Always regenerate keys when PIN changes to ensure they match
-            // This ensures the private key is encrypted with the new PIN
-            try {
-                $this->encryptionService->generateKeyPair($user, $request->pin);
-            } catch (\Exception $e) {
-                \Log::error('Failed to regenerate keys on PIN update', ['error' => $e->getMessage()]);
-                // We don't stop the request, but we log the error
+                try {
+                    $this->encryptionService->rekeyPassphrase($user, $request->current_pin, $request->pin);
+                } catch (\Exception $e) {
+                    \Log::error('Failed to rekey encryption key on PIN update', ['error' => $e->getMessage()]);
+
+                    return back()->withErrors(['pin' => 'Gagal mengganti PIN: '.$e->getMessage()]);
+                }
+            } else {
+                // First-time PIN setup: no existing key pair to preserve.
+                try {
+                    $this->encryptionService->generateKeyPair($user, $request->pin);
+                } catch (\Exception $e) {
+                    \Log::error('Failed to generate keys on PIN update', ['error' => $e->getMessage()]);
+
+                    return back()->withErrors(['pin' => 'Gagal membuat kunci enkripsi: '.$e->getMessage()]);
+                }
             }
+
+            $user->pin = bcrypt($request->pin);
+            $user->save();
         }
 
         if ($request->hasFile('signature_image')) {
             // Delete old image if exists
-            if ($user->signature_image && \Illuminate\Support\Facades\Storage::exists($user->signature_image)) {
-                \Illuminate\Support\Facades\Storage::delete($user->signature_image);
+            if ($user->signature_image && Storage::exists($user->signature_image)) {
+                Storage::delete($user->signature_image);
             }
 
             $path = $request->file('signature_image')->store('signatures/images', 'public');

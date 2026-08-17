@@ -1,15 +1,108 @@
 import AlertModal from '@/components/ui/alert-modal';
 import { Button } from '@/components/ui/button';
+import ConfirmModal from '@/components/ui/confirm-modal';
 import { Input } from '@/components/ui/input';
+import {
+    InputOTP,
+    InputOTPGroup,
+    InputOTPSlot,
+} from '@/components/ui/input-otp';
 import { Label } from '@/components/ui/label';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { useModal } from '@/hooks/use-modal';
 import { useToast } from '@/hooks/use-toast';
 import { type SharedData } from '@/types';
 import { usePage } from '@inertiajs/react';
-import { Eraser, Image, PenTool, Save, Stamp, Trash2, X } from 'lucide-react';
+import { REGEXP_ONLY_DIGITS } from 'input-otp';
+import {
+    ChevronDown,
+    ChevronUp,
+    Eraser,
+    Image,
+    PenTool,
+    QrCode,
+    Save,
+    Stamp,
+    Trash2,
+    X,
+} from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState } from 'react';
+
+// Logo shown in the middle of generated verification QR codes. Uses the
+// site logo for now, per product decision.
+const QR_LOGO_SRC = '/images/sisign-logo-only.png';
+
+/**
+ * Renders a verification QR code (high error-correction so it still scans
+ * with a logo punched into the middle) with the app logo centered on top.
+ */
+async function generateQrCodeWithLogo(
+    data: string,
+    size = 240,
+): Promise<string> {
+    const qrDataUrl = await QRCode.toDataURL(data, {
+        width: size,
+        margin: 1,
+        errorCorrectionLevel: 'H',
+        color: { dark: '#000000', light: '#FFFFFF' },
+    });
+
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            resolve(qrDataUrl);
+            return;
+        }
+
+        const qrImg = new window.Image();
+        qrImg.onload = () => {
+            ctx.drawImage(qrImg, 0, 0, size, size);
+
+            const logoImg = new window.Image();
+            logoImg.onload = () => {
+                const logoSize = size * 0.24;
+                const padding = logoSize * 0.14;
+                const logoX = (size - logoSize) / 2;
+                const logoY = (size - logoSize) / 2;
+                const bgX = logoX - padding;
+                const bgY = logoY - padding;
+                const bgSize = logoSize + padding * 2;
+                const radius = 8;
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.beginPath();
+                ctx.moveTo(bgX + radius, bgY);
+                ctx.arcTo(bgX + bgSize, bgY, bgX + bgSize, bgY + bgSize, radius);
+                ctx.arcTo(bgX + bgSize, bgY + bgSize, bgX, bgY + bgSize, radius);
+                ctx.arcTo(bgX, bgY + bgSize, bgX, bgY, radius);
+                ctx.arcTo(bgX, bgY, bgX + bgSize, bgY, radius);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.drawImage(logoImg, logoX, logoY, logoSize, logoSize);
+                resolve(canvas.toDataURL('image/png'));
+            };
+            // Logo failing to load shouldn't block signing - fall back to a
+            // plain QR code without the logo.
+            logoImg.onerror = () => resolve(qrDataUrl);
+            logoImg.src = QR_LOGO_SRC;
+        };
+        qrImg.onerror = () => reject(new Error('Gagal memuat kode QR.'));
+        qrImg.src = qrDataUrl;
+    });
+}
 
 interface PDFCanvasViewerProps {
     pdfUrl: string;
@@ -37,7 +130,6 @@ export default function PDFCanvasViewer({
     const [isDrawing, setIsDrawing] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
-    const [passphrase, setPassphrase] = useState<string>('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [drawingMode, setDrawingMode] = useState<'pen' | 'eraser' | 'stamp'>(
         'pen',
@@ -54,14 +146,30 @@ export default function PDFCanvasViewer({
     const [stampSize, setStampSize] = useState(100);
     const [isDraggingStamp, setIsDraggingStamp] = useState(false);
 
+    // QR verification barcode (dropped on the PDF like a stamp, movable/resizable)
+    const [barcodeData, setBarcodeData] = useState<string | null>(null);
+
     // Store previous canvas content to preserve drawings
     const [previousCanvasContent, setPreviousCanvasContent] = useState<
         string | null
     >(null);
 
+    // Advanced tools (color, eraser, manual stamp upload/resize) are hidden
+    // by default to keep the primary flow simple for less tech-savvy users.
+    const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+
+    // Step-by-step flow: choose how to sign first, then enter PIN & save.
+    const [flowStep, setFlowStep] = useState<'choose' | 'sign' | 'pin'>(
+        'choose',
+    );
+
+    // PIN is entered inside the confirmation modal, right before saving.
+    const [confirmPin, setConfirmPin] = useState('');
+
     const { auth } = usePage<SharedData>().props;
     const { error, info } = useToast();
     const alertModal = useModal();
+    const confirmSaveModal = useModal();
     const [alertData, setAlertData] = useState({
         title: '',
         description: '',
@@ -178,6 +286,10 @@ export default function PDFCanvasViewer({
     const stopDrawing = useCallback(() => {
         if (!isDrawing) return;
         setIsDrawing(false);
+        // A short touch/mouse-up ends a stroke: if the user drew at least one
+        // stroke, offer the PIN step. Deferring keeps a single tap from
+        // advancing the flow.
+        setFlowStep('pin');
     }, [isDrawing]);
 
     const clearCanvas = useCallback(() => {
@@ -233,8 +345,29 @@ export default function PDFCanvasViewer({
         [alertModal, saveCanvasContent],
     );
 
+    // After the user has drawn their signature, move them to the PIN step
+    const finishDrawing = useCallback(() => {
+        if (!isDrawing) return;
+        setIsDrawing(false);
+        setFlowStep('pin');
+    }, [isDrawing]);
+
+    // Go back from the PIN step to redo the signature
+    const backToDrawing = useCallback(() => {
+        setFlowStep('sign');
+        // Keep existing drawing so the user can adjust rather than start over
+        if (barcodeData) {
+            setDrawingMode('stamp');
+        } else if (stampImage) {
+            setDrawingMode('stamp');
+        } else {
+            setDrawingMode('pen');
+        }
+    }, [barcodeData, stampImage]);
+
     const removeStamp = useCallback(() => {
         setStampImage(null);
+        setBarcodeData(null);
         setStampPosition(null);
         setDrawingMode('pen');
 
@@ -359,6 +492,7 @@ export default function PDFCanvasViewer({
                 setDrawingMode('stamp');
                 // Adjust stamp size logic if needed, maybe fit to reasonable size
                 setStampSize(150);
+                setFlowStep('pin');
             }
         };
         img.onerror = () => {
@@ -366,6 +500,28 @@ export default function PDFCanvasViewer({
         };
         img.src = signatureUrl;
     }, [auth.user.signature_image, alertModal, saveCanvasContent]);
+
+    // Switch to barcode-only mode: generate the verification QR in the
+    // browser, load it as the "stamp" so the user can click/drag/resize it on
+    // the PDF exactly like a stamp, then sign with just the barcode.
+    const useBarcodeOnly = useCallback(async () => {
+        try {
+            const baseUrl = window.location.origin;
+            const qrCodeData = `${baseUrl}/verify-document/${documentId}`;
+            const qrCodeImageData = await generateQrCodeWithLogo(qrCodeData, 240);
+
+            saveCanvasContent();
+            setBarcodeData(qrCodeImageData);
+            setStampImage(qrCodeImageData);
+            setStampPosition({ x: 150, y: 150 });
+            setStampSize(140);
+            setDrawingMode('stamp');
+            setFlowStep('pin');
+        } catch (err) {
+            console.error('Failed to generate barcode:', err);
+            error('Gagal membuat barcode verifikasi.');
+        }
+    }, [documentId, saveCanvasContent, error]);
 
 
 
@@ -449,16 +605,18 @@ export default function PDFCanvasViewer({
             return;
         }
 
-        // Validate passphrase is required
-        if (!passphrase || passphrase.trim() === '') {
-            error('PIN wajib diisi untuk keamanan digital signature.');
-            return;
-        }
+        // Open the confirmation modal where the 6-digit PIN is entered, so
+        // signing happens in a single explicit step.
+        setConfirmPin('');
+        confirmSaveModal.open();
+    }, [info, confirmSaveModal]);
 
-        if (passphrase.length !== 6) {
-            error('PIN harus 6 digit angka.');
-            return;
-        }
+    const performSave = useCallback(async () => {
+        if (!canvasRef.current) return;
+
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
 
         setIsProcessing(true);
 
@@ -583,19 +741,18 @@ export default function PDFCanvasViewer({
             // Use generateQRCode prop if provided, otherwise fallback to !isTemplate
             const shouldGenerateQR = generateQRCode !== undefined ? generateQRCode : !isTemplate;
 
-            if (shouldGenerateQR) {
-                // Generate QR code image with verification link
+            // When the user placed the barcode themselves (barcode-only mode),
+            // the QR is already the signature stamp - don't add a duplicate
+            // automatic one in the corner.
+            if (shouldGenerateQR && !barcodeData) {
+                // Generate QR code image with verification link (with logo)
                 const baseUrl = window.location.origin;
                 const qrCodeData = `${baseUrl}/verify-document/${documentId}`;
                 console.log('QR Code data:', qrCodeData);
-                const qrCodeImageData = await QRCode.toDataURL(qrCodeData, {
-                    width: 60,
-                    margin: 1,
-                    color: {
-                        dark: '#000000',
-                        light: '#FFFFFF',
-                    },
-                });
+                const qrCodeImageData = await generateQrCodeWithLogo(
+                    qrCodeData,
+                    120,
+                );
 
                 // Embed QR code image
                 const qrCodeImage = await pdfDoc.embedPng(qrCodeImageData);
@@ -603,10 +760,10 @@ export default function PDFCanvasViewer({
 
                 // Add QR code at bottom right
                 page.drawImage(qrCodeImage, {
-                    x: pageWidth - 80,
+                    x: pageWidth - 100,
                     y: 20,
-                    width: 60,
-                    height: 60,
+                    width: 80,
+                    height: 80,
                 });
                 console.log('QR code drawn on PDF');
             }
@@ -667,9 +824,9 @@ export default function PDFCanvasViewer({
             }
 
             // Send to backend for storage
-            onSave(signatureData, passphrase || undefined, signedPdfBase64);
+            onSave(signatureData, confirmPin || undefined, signedPdfBase64);
 
-            setPassphrase('');
+            setConfirmPin('');
             clearCanvas();
         } catch (err) {
             console.error('Error processing signature:', err);
@@ -704,7 +861,7 @@ export default function PDFCanvasViewer({
         } finally {
             setIsProcessing(false);
         }
-    }, [onSave, passphrase, currentPage, pdfUrl, clearCanvas]);
+    }, [onSave, confirmPin, currentPage, pdfUrl, clearCanvas, barcodeData, generateQRCode, documentId, isTemplate]);
 
     useEffect(() => {
         loadPDF();
@@ -817,291 +974,391 @@ export default function PDFCanvasViewer({
 
             {canEdit && (
                 <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2 sm:gap-4 sm:p-4">
-                        <div className="flex items-center space-x-2">
-                            <Button
-                                variant={
-                                    drawingMode === 'pen'
-                                        ? 'default'
-                                        : 'outline'
-                                }
-                                size="sm"
-                                className="px-2 text-xs sm:px-3 sm:text-sm"
-                                onClick={() => setDrawingMode('pen')}
-                            >
-                                <PenTool className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline">Pen</span>
-                            </Button>
-                            <Button
-                                variant={
-                                    drawingMode === 'eraser'
-                                        ? 'default'
-                                        : 'outline'
-                                }
-                                size="sm"
-                                className="px-2 text-xs sm:px-3 sm:text-sm"
-                                onClick={() => setDrawingMode('eraser')}
-                            >
-                                <Eraser className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline">Eraser</span>
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="px-2 text-xs sm:px-3 sm:text-sm"
-                                onClick={handleUseSavedSignature}
-                                title="Gunakan Tanda Tangan Tersimpan"
-                            >
-                                <Stamp className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline">
-                                    TTD Tersimpan
-                                </span>
-                                <span className="sm:hidden">TTD</span>
-                            </Button>
-                        </div>
-
-                        {/* Stamp Controls */}
-                        <div className="flex items-center space-x-2">
-                            <Button
-                                variant={
-                                    drawingMode === 'stamp'
-                                        ? 'default'
-                                        : 'outline'
-                                }
-                                size="sm"
-                                className={`px-2 text-xs sm:px-3 sm:text-sm ${drawingMode === 'stamp'
-                                    ? 'bg-blue-600 text-white'
-                                    : ''
-                                    }`}
-                                onClick={() =>
-                                    stampImage && setDrawingMode('stamp')
-                                }
-                                disabled={!stampImage}
-                            >
-                                <Stamp className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline">
-                                    {drawingMode === 'stamp'
-                                        ? 'Mode Stempel'
-                                        : 'Stempel'}
-                                </span>
-                                <span className="sm:hidden">
-                                    {drawingMode === 'stamp' ? 'Stempel' : 'ST'}
-                                </span>
-                            </Button>
-
-                            <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handleStampUpload}
-                                className="hidden"
-                                id="stamp-upload"
-                            />
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="px-2 text-xs sm:px-3 sm:text-sm"
-                                onClick={() =>
-                                    document
-                                        .getElementById('stamp-upload')
-                                        ?.click()
-                                }
-                            >
-                                <Image className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline">
-                                    Upload Gambar
-                                </span>
-                                <span className="sm:hidden">Upload</span>
-                            </Button>
-
-                            {stampImage && (
+                    {/* STEP 'choose': pick how to sign */}
+                    {flowStep === 'choose' && (
+                        <div className="rounded-lg border-2 border-blue-100 bg-blue-50/50 p-3 sm:p-4">
+                            <p className="mb-2 text-sm font-semibold text-gray-800">
+                                1. Pilih cara tanda tangan
+                            </p>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                 <Button
+                                    type="button"
                                     variant="outline"
-                                    size="sm"
-                                    className="px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 sm:px-3 sm:text-sm"
-                                    onClick={removeStamp}
+                                    onClick={handleUseSavedSignature}
+                                    className="h-auto justify-start gap-3 border-blue-300 bg-white px-4 py-3 text-left hover:bg-blue-50"
                                 >
-                                    <X className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
-                                    <span className="hidden sm:inline">
-                                        Hapus
+                                    <Stamp className="h-5 w-5 shrink-0 text-blue-600" />
+                                    <span>
+                                        <span className="block text-sm font-medium text-gray-900">
+                                            Pakai Tanda Tangan Tersimpan
+                                        </span>
+                                        <span className="block text-xs text-gray-500">
+                                            Gambar TTD yang sudah diupload di
+                                            profil
+                                        </span>
                                     </span>
                                 </Button>
-                            )}
-                        </div>
-
-                        <div className="flex items-center space-x-1 sm:space-x-2">
-                            <Label
-                                htmlFor="penSize"
-                                className="text-xs font-medium sm:text-sm"
-                            >
-                                <span className="hidden sm:inline">Size:</span>
-                                <span className="sm:hidden">S:</span>
-                            </Label>
-                            <Input
-                                id="penSize"
-                                type="range"
-                                min="1"
-                                max="10"
-                                value={penSize}
-                                onChange={(e) =>
-                                    setPenSize(Number(e.target.value))
-                                }
-                                className="w-12 sm:w-20"
-                            />
-                            <span className="min-w-[25px] text-xs text-gray-500 sm:min-w-[30px] sm:text-sm">
-                                {penSize}
-                            </span>
-                        </div>
-
-                        <div className="flex items-center space-x-1 sm:space-x-2">
-                            <Label
-                                htmlFor="penColor"
-                                className="text-xs font-medium sm:text-sm"
-                            >
-                                <span className="hidden sm:inline">Color:</span>
-                                <span className="sm:hidden">C:</span>
-                            </Label>
-                            <Input
-                                id="penColor"
-                                type="color"
-                                value={penColor}
-                                onChange={(e) => setPenColor(e.target.value)}
-                                className="h-6 w-8 rounded border border-gray-300 p-1 sm:h-8 sm:w-12"
-                            />
-                        </div>
-
-                        {/* Stamp Size Controls - Only show when stamp is active */}
-                        {stampImage && (
-                            <div className="flex flex-col space-y-2">
-                                <div className="flex items-center space-x-1 sm:space-x-2">
-                                    <Label
-                                        htmlFor="stampSize"
-                                        className="text-xs font-medium sm:text-sm"
-                                    >
-                                        <span className="hidden sm:inline">
-                                            Size:
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        setDrawingMode('pen');
+                                        setFlowStep('sign');
+                                    }}
+                                    className="h-auto justify-start gap-3 border-blue-300 bg-white px-4 py-3 text-left hover:bg-blue-50"
+                                >
+                                    <PenTool className="h-5 w-5 shrink-0 text-blue-600" />
+                                    <span>
+                                        <span className="block text-sm font-medium text-gray-900">
+                                            Gambar Langsung di Layar
                                         </span>
-                                        <span className="sm:hidden">S:</span>
-                                    </Label>
-                                    <Input
-                                        id="stampSize"
-                                        type="range"
-                                        min="30"
-                                        max="300"
-                                        step="10"
-                                        value={stampSize}
-                                        onChange={(e) =>
-                                            setStampSize(Number(e.target.value))
-                                        }
-                                        className="w-16 sm:w-24"
-                                    />
-                                    <span className="min-w-[25px] text-xs text-gray-500 sm:min-w-[30px] sm:text-sm">
-                                        {stampSize}px
+                                        <span className="block text-xs text-gray-500">
+                                            Tulis pakai jari / mouse
+                                        </span>
                                     </span>
-                                </div>
-
-                                {/* Quick Size Presets */}
-                                <div className="flex items-center space-x-1">
-                                    <span className="text-xs text-gray-500">
-                                        Quick:
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={useBarcodeOnly}
+                                    className="h-auto justify-start gap-3 border-blue-300 bg-white px-4 py-3 text-left hover:bg-blue-50"
+                                >
+                                    <QrCode className="h-5 w-5 shrink-0 text-blue-600" />
+                                    <span>
+                                        <span className="block text-sm font-medium text-gray-900">
+                                            Letakkan Barcode / QR Verifikasi
+                                        </span>
+                                        <span className="block text-xs text-gray-500">
+                                            Pilih posisi & ukuran QR di PDF
+                                        </span>
                                     </span>
+                                </Button>
+                                {auth.user.signature_image && (
                                     <Button
+                                        type="button"
                                         variant="outline"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs"
-                                        onClick={() => setStampSize(50)}
+                                        onClick={() => {
+                                            document
+                                                .getElementById('stamp-upload')
+                                                ?.click();
+                                        }}
+                                        className="h-auto justify-start gap-3 border-blue-300 bg-white px-4 py-3 text-left hover:bg-blue-50"
                                     >
-                                        S
+                                        <Image className="h-5 w-5 shrink-0 text-blue-600" />
+                                        <span>
+                                            <span className="block text-sm font-medium text-gray-900">
+                                                Upload Stempel / Gambar
+                                            </span>
+                                            <span className="block text-xs text-gray-500">
+                                                TTD digital, stempel resmi, dll
+                                            </span>
+                                        </span>
                                     </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs"
-                                        onClick={() => setStampSize(100)}
-                                    >
-                                        M
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs"
-                                        onClick={() => setStampSize(150)}
-                                    >
-                                        L
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs"
-                                        onClick={() => setStampSize(200)}
-                                    >
-                                        XL
-                                    </Button>
-                                </div>
+                                )}
                             </div>
-                        )}
+                            <p className="mt-2 text-xs text-gray-500">
+                                Pilih salah satu cara di atas. Anda juga bisa
+                                mengkombinasikannya nanti (misal gambar + QR)
+                                melalui opsi lanjutan.
+                            </p>
+                        </div>
+                    )}
 
+                    {/* STEP 'sign': draw (only after choosing manual) */}
+                    {flowStep === 'sign' && (
+                        <div className="rounded-lg border-2 border-blue-100 bg-blue-50/50 p-3 sm:p-4">
+                            <p className="mb-2 text-sm font-semibold text-gray-800">
+                                1. Gambar tanda tangan di area PDF di atas
+                            </p>
+                            <p className="text-xs text-gray-500">
+                                Gunakan jari / mouse untuk menulis tanda tangan
+                                langsung di dokumen. Selesai menggambar akan
+                                otomatis lanjut ke langkah PIN.
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Always-visible essential actions (during sign/choose) */}
+                    <div className="flex flex-wrap items-center gap-2">
                         <Button
+                            type="button"
                             variant="outline"
                             size="sm"
                             onClick={clearAll}
-                            className="px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 sm:px-3 sm:text-sm"
+                            className="text-xs text-red-600 hover:bg-red-50 hover:text-red-700 sm:text-sm"
                         >
                             <Trash2 className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
-                            <span className="hidden sm:inline">Clear</span>
+                            Hapus Coretan
                         </Button>
+
+                        {flowStep === 'sign' && (
+                            <>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setFlowStep('choose')}
+                                    className="text-xs text-gray-500 sm:text-sm"
+                                >
+                                    Ganti cara tanda tangan
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setShowAdvancedTools((v) => !v)}
+                                    className="ml-auto text-xs text-gray-500 sm:text-sm"
+                                >
+                                    {showAdvancedTools ? (
+                                        <ChevronUp className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                    ) : (
+                                        <ChevronDown className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                    )}
+                                    Opsi Lanjutan (stempel, warna, ukuran)
+                                </Button>
+                            </>
+                        )}
                     </div>
 
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                            <Label
-                                htmlFor="passphrase"
-                                className="text-xs font-medium sm:text-sm"
-                            >
-                                <span className="hidden sm:inline">
-                                    PIN Digital Signature
-                                    <span className="ml-1 font-medium text-red-500">
-                                        *
+                    {/* Advanced tools, hidden by default, only during manual drawing */}
+                    {showAdvancedTools && flowStep === 'sign' && (
+                        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2 sm:gap-4 sm:p-4">
+                            <div className="flex items-center space-x-2">
+                                <Button
+                                    variant={
+                                        drawingMode === 'eraser'
+                                            ? 'default'
+                                            : 'outline'
+                                    }
+                                    size="sm"
+                                    className="px-2 text-xs sm:px-3 sm:text-sm"
+                                    onClick={() => setDrawingMode('eraser')}
+                                >
+                                    <Eraser className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="hidden sm:inline">
+                                        Eraser
                                     </span>
-                                </span>
-                                <span className="sm:hidden">
-                                    PIN
-                                    <span className="ml-1 font-medium text-red-500">
-                                        *
+                                </Button>
+                            </div>
+
+                            {/* Stamp Controls */}
+                            <div className="flex items-center space-x-2">
+                                <Button
+                                    variant={
+                                        drawingMode === 'stamp'
+                                            ? 'default'
+                                            : 'outline'
+                                    }
+                                    size="sm"
+                                    className={`px-2 text-xs sm:px-3 sm:text-sm ${drawingMode === 'stamp'
+                                        ? 'bg-blue-600 text-white'
+                                        : ''
+                                        }`}
+                                    onClick={() =>
+                                        stampImage && setDrawingMode('stamp')
+                                    }
+                                    disabled={!stampImage}
+                                >
+                                    <Stamp className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="hidden sm:inline">
+                                        {drawingMode === 'stamp'
+                                            ? 'Mode Stempel'
+                                            : 'Stempel'}
                                     </span>
+                                    <span className="sm:hidden">
+                                        {drawingMode === 'stamp' ? 'Stempel' : 'ST'}
+                                    </span>
+                                </Button>
+
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleStampUpload}
+                                    className="hidden"
+                                    id="stamp-upload"
+                                />
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="px-2 text-xs sm:px-3 sm:text-sm"
+                                    onClick={() =>
+                                        document
+                                            .getElementById('stamp-upload')
+                                            ?.click()
+                                    }
+                                >
+                                    <Image className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="hidden sm:inline">
+                                        Upload Gambar
+                                    </span>
+                                    <span className="sm:hidden">Upload</span>
+                                </Button>
+
+                                {stampImage && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 sm:px-3 sm:text-sm"
+                                        onClick={removeStamp}
+                                    >
+                                        <X className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+                                        <span className="hidden sm:inline">
+                                            Hapus
+                                        </span>
+                                    </Button>
+                                )}
+                            </div>
+
+                            <div className="flex items-center space-x-1 sm:space-x-2">
+                                <Label
+                                    htmlFor="penSize"
+                                    className="text-xs font-medium sm:text-sm"
+                                >
+                                    <span className="hidden sm:inline">Size:</span>
+                                    <span className="sm:hidden">S:</span>
+                                </Label>
+                                <Input
+                                    id="penSize"
+                                    type="range"
+                                    min="1"
+                                    max="10"
+                                    value={penSize}
+                                    onChange={(e) =>
+                                        setPenSize(Number(e.target.value))
+                                    }
+                                    className="w-12 sm:w-20"
+                                />
+                                <span className="min-w-[25px] text-xs text-gray-500 sm:min-w-[30px] sm:text-sm">
+                                    {penSize}
                                 </span>
-                            </Label>
-                            <Input
-                                id="passphrase"
-                                type="password"
-                                value={passphrase}
-                                onChange={(e) => setPassphrase(e.target.value)}
-                                placeholder="Masukkan 6-digit PIN"
-                                className="w-full"
-                                required
-                                maxLength={6}
-                                pattern="\d{6}"
-                            />
-                            <p className="text-xs text-gray-500">
-                                <span className="hidden sm:inline">
-                                    PIN 6 digit wajib diisi untuk otorisasi tanda tangan.
-                                </span>
-                                <span className="sm:hidden">
-                                    PIN 6 digit wajib diisi.
-                                </span>
+                            </div>
+
+                            <div className="flex items-center space-x-1 sm:space-x-2">
+                                <Label
+                                    htmlFor="penColor"
+                                    className="text-xs font-medium sm:text-sm"
+                                >
+                                    <span className="hidden sm:inline">Color:</span>
+                                    <span className="sm:hidden">C:</span>
+                                </Label>
+                                <Input
+                                    id="penColor"
+                                    type="color"
+                                    value={penColor}
+                                    onChange={(e) => setPenColor(e.target.value)}
+                                    className="h-6 w-8 rounded border border-gray-300 p-1 sm:h-8 sm:w-12"
+                                />
+                            </div>
+
+                            {/* Stamp Size Controls - Only show when stamp is active */}
+                            {stampImage && (
+                                <div className="flex flex-col space-y-2">
+                                    <div className="flex items-center space-x-1 sm:space-x-2">
+                                        <Label
+                                            htmlFor="stampSize"
+                                            className="text-xs font-medium sm:text-sm"
+                                        >
+                                            <span className="hidden sm:inline">
+                                                Size:
+                                            </span>
+                                            <span className="sm:hidden">S:</span>
+                                        </Label>
+                                        <Input
+                                            id="stampSize"
+                                            type="range"
+                                            min="30"
+                                            max="300"
+                                            step="10"
+                                            value={stampSize}
+                                            onChange={(e) =>
+                                                setStampSize(Number(e.target.value))
+                                            }
+                                            className="w-16 sm:w-24"
+                                        />
+                                        <span className="min-w-[25px] text-xs text-gray-500 sm:min-w-[30px] sm:text-sm">
+                                            {stampSize}px
+                                        </span>
+                                    </div>
+
+                                    {/* Quick Size Presets */}
+                                    <div className="flex items-center space-x-1">
+                                        <span className="text-xs text-gray-500">
+                                            Quick:
+                                        </span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 px-2 text-xs"
+                                            onClick={() => setStampSize(50)}
+                                        >
+                                            S
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 px-2 text-xs"
+                                            onClick={() => setStampSize(100)}
+                                        >
+                                            M
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 px-2 text-xs"
+                                            onClick={() => setStampSize(150)}
+                                        >
+                                            L
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 px-2 text-xs"
+                                            onClick={() => setStampSize(200)}
+                                        >
+                                            XL
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* STEP 'pin': only shown once a signature has been drawn/placed */}
+                    {flowStep === 'pin' && (
+                        <div className="sticky bottom-0 z-10 -mx-2 space-y-3 rounded-t-lg border-t-2 border-blue-100 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:relative sm:mx-0 sm:rounded-lg sm:border sm:border-gray-200 sm:bg-gray-50 sm:shadow-none sm:p-4">
+                            <p className="mb-2 text-sm font-semibold text-gray-800">
+                                2. Simpan tanda tangan
                             </p>
+                            <p className="mb-3 text-xs text-gray-500">
+                                Tekan tombol di bawah, lalu masukkan PIN 6
+                                digit Anda di kotak konfirmasi untuk
+                                menyelesaikan tanda tangan.
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="lg"
+                                    onClick={backToDrawing}
+                                    disabled={isProcessing}
+                                    className="h-14 px-4 text-sm font-medium"
+                                >
+                                    Kembali
+                                </Button>
+                                <Button
+                                    onClick={handleSave}
+                                    size="lg"
+                                    className="h-14 w-full bg-green-600 text-base font-semibold hover:bg-green-700"
+                                    disabled={isProcessing}
+                                >
+                                    <Save className="mr-2 h-5 w-5" />
+                                    {isProcessing
+                                        ? 'Memproses...'
+                                        : 'Simpan Tanda Tangan'}
+                                </Button>
+                            </div>
                         </div>
-
-                        <div className="flex items-end">
-                            <Button
-                                onClick={handleSave}
-                                className="w-full bg-green-600 px-3 py-2 text-xs hover:bg-green-700 sm:px-4 sm:text-sm md:w-auto"
-                                disabled={isProcessing}
-                            >
-                                <Save className="mr-1 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
-                                {isProcessing ? 'Memproses...' : 'Simpan TTD'}
-                            </Button>
-                        </div>
-                    </div>
+                    )}
                 </div>
             )}
 
@@ -1148,6 +1405,87 @@ export default function PDFCanvasViewer({
                 description={alertData.description}
                 type={alertData.type}
             />
+
+            {/* Confirmation modal with PIN entry, shown when clicking Simpan */}
+            <Dialog
+                open={confirmSaveModal.isOpen}
+                onOpenChange={(open) => {
+                    if (!open && !isProcessing) {
+                        confirmSaveModal.close();
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-[440px]">
+                    <DialogHeader>
+                        <DialogTitle>Konfirmasi Tanda Tangan</DialogTitle>
+                        <DialogDescription>
+                            Setelah disimpan, tanda tangan ini akan tercatat
+                            resmi pada{' '}
+                            {isTemplate ? 'template' : 'dokumen'} ini dan
+                            tidak dapat diedit. Tanda tangan hanya bisa dihapus
+                            selama belum ditandatangani lengkap oleh semua
+                            pihak. Masukkan PIN 6 digit Anda untuk
+                            menyelesaikan.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="flex flex-col items-center gap-2 py-2">
+                        <Label
+                            htmlFor="confirm-pin"
+                            className="text-sm font-medium text-gray-700"
+                        >
+                            PIN Digital Signature
+                        </Label>
+                        <InputOTP
+                            id="confirm-pin"
+                            maxLength={6}
+                            value={confirmPin}
+                            onChange={(value) => setConfirmPin(value)}
+                            pattern={REGEXP_ONLY_DIGITS}
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                        >
+                            <InputOTPGroup>
+                                {Array.from({ length: 6 }, (_, index) => (
+                                    <InputOTPSlot
+                                        key={index}
+                                        index={index}
+                                        className="h-12 w-10 text-base sm:w-11 sm:text-lg"
+                                    />
+                                ))}
+                            </InputOTPGroup>
+                        </InputOTP>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={confirmSaveModal.close}
+                            disabled={isProcessing}
+                        >
+                            Batal
+                        </Button>
+                        <Button
+                            onClick={() => {
+                                if (confirmPin.length !== 6) {
+                                    error(
+                                        'PIN harus 6 digit angka sebelum menyimpan.',
+                                    );
+                                    return;
+                                }
+                                performSave();
+                            }}
+                            disabled={isProcessing || confirmPin.length !== 6}
+                            className="bg-green-600 hover:bg-green-700"
+                        >
+                            <Save className="mr-1 h-4 w-4" />
+                            {isProcessing
+                                ? 'Memproses...'
+                                : 'Ya, Simpan Tanda Tangan'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div >
     );
 }

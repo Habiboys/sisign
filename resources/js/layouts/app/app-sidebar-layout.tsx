@@ -5,8 +5,7 @@ import { AppSidebarHeader } from '@/components/app-sidebar-header';
 import { type BreadcrumbItem } from '@/types';
 import { usePage } from '@inertiajs/react';
 import { type PropsWithChildren, useEffect } from 'react';
-import { toast, ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { toast, Toaster } from 'sonner';
 
 export default function AppSidebarLayout({
     children,
@@ -25,7 +24,7 @@ export default function AppSidebarLayout({
             toast.info(props.flash.info);
         }
         if (props.flash?.warning) {
-            toast.warn(props.flash.warning);
+            toast.warning(props.flash.warning);
         }
     }, [props.flash]);
 
@@ -36,18 +35,7 @@ export default function AppSidebarLayout({
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
                 {children}
             </AppContent>
-            <ToastContainer
-                position="top-right"
-                autoClose={3000}
-                hideProgressBar={false}
-                newestOnTop={false}
-                closeOnClick
-                rtl={false}
-                pauseOnFocusLoss
-                draggable
-                pauseOnHover
-                theme="light"
-            />
+            <Toaster position="top-right" richColors closeButton />
         </AppShell>
     );
 }

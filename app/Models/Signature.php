@@ -2,13 +2,16 @@
 
 namespace App\Models;
 
+use Database\Factories\SignatureFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Signature extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<SignatureFactory> */
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'documentId',
@@ -43,7 +46,7 @@ class Signature extends Model
 
     protected $dates = [
         'signedAt',
-        'signature_timestamp'
+        'signature_timestamp',
     ];
 
     public function document(): BelongsTo
@@ -58,6 +61,6 @@ class Signature extends Model
 
     public function user(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\User::class, 'userId');
+        return $this->belongsTo(User::class, 'userId');
     }
 }

@@ -69,7 +69,7 @@ interface Props {
 type Step = 'select' | 'mapping' | 'upload';
 
 export default function CertificatesBulkCreateWizard({ templates, user }: Props) {
-    const { success, error, info } = useToast();
+    const { error, info } = useToast();
     const [currentStep, setCurrentStep] = useState<Step>('select');
     const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
     const [variables, setVariables] = useState<VariablePosition[]>([]);
@@ -307,7 +307,8 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
             preserveState: true,
             preserveScroll: true,
             onSuccess: () => {
-                success('Posisi variabel berhasil disimpan');
+                // Backend flashes a success message, shown automatically by
+                // the app layout - don't show a second toast here.
 
                 // Reload page untuk mendapatkan data template terbaru dari server
                 router.reload({
@@ -359,11 +360,9 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
             passphrase: data.passphrase ? '***' : null
         });
 
+        // Backend flashes a success message, shown automatically by the app layout.
         post(routes.certificates.generateFromExcel(), {
             forceFormData: true,
-            onSuccess: () => {
-                success('Sertifikat berhasil digenerate!');
-            },
             onError: (errors) => {
                 const errorMessage = Object.values(errors).flat().join(', ');
                 error('Terjadi kesalahan: ' + errorMessage);

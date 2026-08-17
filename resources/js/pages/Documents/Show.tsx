@@ -8,6 +8,7 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import ConfirmModal from '@/components/ui/confirm-modal';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Label } from '@/components/ui/label';
 import {
     Select,
@@ -25,6 +26,7 @@ import { Head, router, useForm } from '@inertiajs/react';
 import {
     Calendar,
     CheckCircle,
+    ChevronDown,
     Clock,
     Download,
     FileText,
@@ -85,9 +87,9 @@ interface Props {
 
 export default function DocumentsShow({ document, user }: Props) {
     const [showReviewForm, setShowReviewForm] = useState(false);
-    const { success, error } = useToast();
+    const [infoOpen, setInfoOpen] = useState(true);
+    const { error } = useToast();
     const deleteModal = useModal();
-    const [deleteSignatureId, setDeleteSignatureId] = useState<string>('');
 
     // Helper function to check if document has a signed file (at least one signature)
     const hasSignedFile = () => {
@@ -174,22 +176,14 @@ export default function DocumentsShow({ document, user }: Props) {
             (signer) => signer.user.id === user.id && !signer.is_signed
         );
 
-    const handleDeleteSignature = (signatureId: string) => {
-        setDeleteSignatureId(signatureId);
+    const handleDeleteSignature = () => {
         deleteModal.open();
     };
-    //aa
+
     const confirmDeleteSignature = () => {
-        router.delete(`/signatures/${deleteSignatureId}`, {
-            onSuccess: (page: any) => {
-                // Check if there's a success message from backend
-                if (page.props.flash?.success) {
-                    success(page.props.flash.success);
-                } else {
-                    success('Tanda tangan berhasil dihapus');
-                }
-                setDeleteSignatureId('');
-            },
+        // Backend flashes a success message, shown automatically by the app
+        // layout - don't show a second toast here.
+        router.delete(`/documents/${document.id}/signature`, {
             onError: (errors) => {
                 error(
                     'Gagal menghapus tanda tangan: ' +
@@ -200,18 +194,37 @@ export default function DocumentsShow({ document, user }: Props) {
         });
     };
 
+    // Group signatures per signer so physical + digital rows collapse into one entry.
+    const signaturesBySigner = (document.signatures || []).reduce(
+        (acc: Record<string, { user: User; types: Set<string>; latestSignedAt: string }>, signature) => {
+            const key = signature.user.id;
+            if (!acc[key]) {
+                acc[key] = { user: signature.user, types: new Set(), latestSignedAt: signature.signedAt };
+            }
+            acc[key].types.add(signature.type);
+            if (new Date(signature.signedAt) > new Date(acc[key].latestSignedAt)) {
+                acc[key].latestSignedAt = signature.signedAt;
+            }
+
+            return acc;
+        },
+        {},
+    );
+
     return (
         <AppLayout>
             <Head title={`Dokumen - ${document.title}`} />
-            <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
-                <div className="flex items-center justify-between">
+            <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900">
+                        <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
                             {document.title}
                         </h1>
-                        <p className="text-gray-600">No. {document.number}</p>
+                        <p className="text-sm text-gray-600 sm:text-base">
+                            No. {document.number}
+                        </p>
                     </div>
-                    <div className="flex space-x-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {canReview && (
                             <Button
                                 onClick={() =>
@@ -238,96 +251,54 @@ export default function DocumentsShow({ document, user }: Props) {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                    <div className="space-y-4 lg:col-span-2">
-                        {/* PDF Viewer */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center">
-                                    <FileText className="mr-2 h-5 w-5" />
-                                    Preview Dokumen
+                {/* Compact info bar on top, expandable */}
+                <Card>
+                    <Collapsible open={infoOpen} onOpenChange={setInfoOpen}>
+                        <CollapsibleTrigger className="w-full">
+                            <CardHeader className="flex w-full flex-row items-center justify-between py-3">
+                                <CardTitle className="flex items-center text-sm sm:text-base">
+                                    <Calendar className="mr-2 h-4 w-4" />
+                                    Informasi & Status
                                 </CardTitle>
+                                <ChevronDown
+                                    className={`h-4 w-4 transition-transform ${
+                                        infoOpen ? 'rotate-180' : ''
+                                    }`}
+                                />
                             </CardHeader>
-                            <CardContent>
-                                <div
-                                    className="rounded-lg border border-gray-300"
-                                    style={{ height: '600px' }}
-                                >
-                                    <iframe
-                                        src={
-                                            hasSignedFile()
-                                                ? `/documents/${document.id}/signed-pdf/preview`
-                                                : `/documents/${document.id}/pdf`
-                                        }
-                                        className="h-full w-full rounded-lg"
-                                        title="Document Preview"
-                                    />
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center">
-                                    <FileText className="mr-2 h-5 w-5" />
-                                    Detail Dokumen
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <Label className="text-sm font-medium text-gray-500">
-                                            Judul
-                                        </Label>
-                                        <p className="text-lg">
-                                            {document.title}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <Label className="text-sm font-medium text-gray-500">
-                                            Nomor
-                                        </Label>
-                                        <p className="text-lg">
-                                            {document.number}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <Label className="text-sm font-medium text-gray-500">
-                                            Pengaju
-                                        </Label>
-                                        <p className="flex items-center">
-                                            <User className="mr-2 h-4 w-4" />
-                                            {document.user.name}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <Label className="text-sm font-medium text-gray-500">
-                                            Ditujukan (Signers)
-                                        </Label>
-                                        <div className="space-y-1">
-                                            {document.signers?.map((signer) => (
-                                                <div key={signer.id} className="flex items-center justify-between text-sm">
-                                                    <div className="flex items-center">
-                                                        <User className="mr-2 h-4 w-4" />
-                                                        {signer.user.name}
-                                                    </div>
-                                                    <Badge variant={signer.is_signed ? "default" : "outline"} className={signer.is_signed ? "bg-green-100 text-green-800" : "text-gray-500"}>
-                                                        {signer.is_signed ? "Sudah TTD" : "Belum TTD"}
-                                                    </Badge>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <CardContent className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">
                                 <div>
-                                    <Label className="text-sm font-medium text-gray-500">
+                                    <Label className="text-xs font-medium text-gray-500 uppercase">
+                                        Judul
+                                    </Label>
+                                    <p className="mt-1 text-sm text-gray-800">
+                                        {document.title}
+                                    </p>
+                                </div>
+                                <div>
+                                    <Label className="text-xs font-medium text-gray-500 uppercase">
+                                        Nomor
+                                    </Label>
+                                    <p className="mt-1 text-sm text-gray-800">
+                                        {document.number}
+                                    </p>
+                                </div>
+                                <div>
+                                    <Label className="text-xs font-medium text-gray-500 uppercase">
+                                        Pengaju
+                                    </Label>
+                                    <p className="mt-1 flex items-center text-sm text-gray-800">
+                                        <User className="mr-1 h-3 w-3 text-gray-500" />
+                                        {document.user.name}
+                                    </p>
+                                </div>
+                                <div>
+                                    <Label className="text-xs font-medium text-gray-500 uppercase">
                                         Tanggal Dibuat
                                     </Label>
-                                    <p className="flex items-center">
-                                        <Calendar className="mr-2 h-4 w-4" />
+                                    <p className="mt-1 text-sm text-gray-800">
                                         {new Date(
                                             document.created_at,
                                         ).toLocaleDateString('id-ID', {
@@ -338,12 +309,59 @@ export default function DocumentsShow({ document, user }: Props) {
                                         })}
                                     </p>
                                 </div>
-
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm font-medium text-gray-600">
-                                            Status TTD:
-                                        </span>
+                                <div>
+                                    <Label className="text-xs font-medium text-gray-500 uppercase">
+                                        Status Review
+                                    </Label>
+                                    <div className="mt-1">
+                                        {getStatusBadge(document.review.status)}
+                                    </div>
+                                    {document.review.komentar && (
+                                        <p className="mt-1 flex items-start text-sm text-gray-600">
+                                            <MessageSquare className="mr-1 mt-0.5 h-3 w-3 shrink-0 text-gray-400" />
+                                            {document.review.komentar}
+                                        </p>
+                                    )}
+                                </div>
+                                <div>
+                                    <Label className="text-xs font-medium text-gray-500 uppercase">
+                                        Ditujukan (Signers)
+                                    </Label>
+                                    <div className="mt-1 space-y-1">
+                                        {document.signers?.map((signer) => (
+                                            <div
+                                                key={signer.id}
+                                                className="flex items-center justify-between gap-2 text-sm"
+                                            >
+                                                <span className="flex items-center text-gray-800">
+                                                    <User className="mr-1 h-3 w-3 text-gray-500" />
+                                                    {signer.user.name}
+                                                </span>
+                                                <Badge
+                                                    variant={
+                                                        signer.is_signed
+                                                            ? 'default'
+                                                            : 'outline'
+                                                    }
+                                                    className={
+                                                        signer.is_signed
+                                                            ? 'bg-green-100 text-green-800'
+                                                            : 'text-gray-500'
+                                                    }
+                                                >
+                                                    {signer.is_signed
+                                                        ? 'Sudah TTD'
+                                                        : 'Belum TTD'}
+                                                </Badge>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <Label className="text-xs font-medium text-gray-500 uppercase">
+                                        Status TTD
+                                    </Label>
+                                    <div className="mt-1">
                                         <Badge
                                             variant={
                                                 isFullySigned()
@@ -367,31 +385,11 @@ export default function DocumentsShow({ document, user }: Props) {
                                                     : 'Belum Ditandatangani'}
                                         </Badge>
                                     </div>
-
-                                    {(document.signatures?.length || 0) > 0 && (
-                                        <div className="text-sm text-gray-600">
-                                            <p>
-                                                Ditandatangani oleh:{' '}
-                                                <span className="font-medium">
-                                                    {
-                                                        document.signatures[0]
-                                                            .user.name
-                                                    }
-                                                </span>
-                                            </p>
-                                            <p>
-                                                Tanggal:{' '}
-                                                <span className="font-medium">
-                                                    {new Date(
-                                                        document.signatures[0].signedAt,
-                                                    ).toLocaleDateString(
-                                                        'id-ID',
-                                                    )}
-                                                </span>
-                                            </p>
-                                        </div>
-                                    )}
-
+                                </div>
+                                <div>
+                                    <Label className="text-xs font-medium text-gray-500 uppercase">
+                                        Unduh
+                                    </Label>
                                     <Button
                                         onClick={() =>
                                             window.open(
@@ -401,18 +399,48 @@ export default function DocumentsShow({ document, user }: Props) {
                                                 '_blank',
                                             )
                                         }
-                                        className="w-full bg-blue-600 hover:bg-blue-700"
+                                        size="sm"
+                                        className="mt-1 bg-blue-600 hover:bg-blue-700"
                                     >
-                                        <Download className="mr-2 h-4 w-4" />
+                                        <Download className="mr-1 h-3 w-3" />
                                         {hasSignedFile()
-                                            ? 'Download Dokumen (Signed)'
-                                            : 'Download Dokumen'}
+                                            ? 'Download (Signed)'
+                                            : 'Download'}
                                     </Button>
                                 </div>
                             </CardContent>
-                        </Card>
+                        </CollapsibleContent>
+                    </Collapsible>
+                </Card>
 
-                        {showReviewForm && canReview && (
+                {/* PDF Viewer - full width */}
+                <div className="space-y-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center">
+                                <FileText className="mr-2 h-5 w-5" />
+                                Preview Dokumen
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div
+                                className="rounded-lg border border-gray-300"
+                                style={{ height: '600px' }}
+                            >
+                                <iframe
+                                    src={
+                                        hasSignedFile()
+                                            ? `/documents/${document.id}/signed-pdf/preview`
+                                            : `/documents/${document.id}/pdf`
+                                    }
+                                    className="h-full w-full rounded-lg"
+                                    title="Document Preview"
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {showReviewForm && canReview && (
                             <Card>
                                 <CardHeader>
                                     <CardTitle>Review Dokumen</CardTitle>
@@ -529,9 +557,9 @@ export default function DocumentsShow({ document, user }: Props) {
                                 </CardHeader>
                                 <CardContent>
                                     <div className="space-y-4">
-                                        {document.signatures.map((signature) => (
+                                        {Object.values(signaturesBySigner).map(({ user: signer, types, latestSignedAt }) => (
                                             <div
-                                                key={signature.id}
+                                                key={signer.id}
                                                 className="flex items-center justify-between rounded-lg border p-4"
                                             >
                                                 <div className="flex items-center space-x-4">
@@ -540,21 +568,14 @@ export default function DocumentsShow({ document, user }: Props) {
                                                     </div>
                                                     <div>
                                                         <p className="font-medium">
-                                                            {
-                                                                signature
-                                                                    .user
-                                                                    .name
-                                                            }
+                                                            {signer.name}
                                                         </p>
                                                         <p className="text-sm text-gray-500">
-                                                            {signature.type ===
-                                                                'digital'
-                                                                ? 'Tanda Tangan Digital'
-                                                                : 'Tanda Tangan Fisik'}
+                                                            Sudah Tanda Tangan
                                                         </p>
                                                         <p className="text-xs text-gray-400">
                                                             {new Date(
-                                                                signature.signedAt,
+                                                                latestSignedAt,
                                                             ).toLocaleDateString(
                                                                 'id-ID',
                                                             )}
@@ -562,38 +583,32 @@ export default function DocumentsShow({ document, user }: Props) {
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center space-x-2">
-                                                    <Badge
-                                                        variant={
-                                                            signature.type ===
-                                                                'digital'
-                                                                ? 'default'
-                                                                : 'secondary'
-                                                        }
-                                                    >
-                                                        {signature.type ===
-                                                            'digital'
-                                                            ? 'Digital'
-                                                            : 'Fisik'}
-                                                    </Badge>
-                                                    {user.role ===
-                                                        'pimpinan' &&
-                                                        signature.user.id ===
-                                                        user.id && (
-                                                            <div className="flex space-x-2">
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() =>
-                                                                        handleDeleteSignature(
-                                                                            signature.id,
-                                                                        )
-                                                                    }
-                                                                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                                                                    title="Hapus TTD"
-                                                                >
-                                                                    <Trash2 className="h-4 w-4" />
-                                                                </Button>
-                                                            </div>
+                                                    {Array.from(types).map((type) => (
+                                                        <Badge
+                                                            key={type}
+                                                            variant={
+                                                                type === 'digital'
+                                                                    ? 'default'
+                                                                    : 'secondary'
+                                                            }
+                                                        >
+                                                            {type === 'digital'
+                                                                ? 'Digital'
+                                                                : 'Fisik'}
+                                                        </Badge>
+                                                    ))}
+                                                    {user.role === 'pimpinan' &&
+                                                        signer.id === user.id &&
+                                                        !isFullySigned() && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={handleDeleteSignature}
+                                                                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                                title="Hapus Tanda Tangan (fisik + digital)"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
                                                         )}
                                                 </div>
                                             </div>
@@ -603,37 +618,6 @@ export default function DocumentsShow({ document, user }: Props) {
                             </Card>
                         )}
                     </div>
-
-                    <div className="space-y-4">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Status Review</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm font-medium">
-                                            Status:
-                                        </span>
-                                        {getStatusBadge(document.review.status)}
-                                    </div>
-
-                                    {document.review.komentar && (
-                                        <div>
-                                            <Label className="flex items-center text-sm font-medium text-gray-500">
-                                                <MessageSquare className="mr-2 h-4 w-4" />
-                                                Komentar:
-                                            </Label>
-                                            <p className="mt-1 rounded-lg bg-gray-50 p-3 text-sm">
-                                                {document.review.komentar}
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </div>
             </div>
 
             {/* Modals */}
@@ -642,7 +626,7 @@ export default function DocumentsShow({ document, user }: Props) {
                 onClose={deleteModal.close}
                 onConfirm={confirmDeleteSignature}
                 title="Hapus Tanda Tangan"
-                description="Apakah Anda yakin ingin menghapus tanda tangan ini? Tindakan ini tidak dapat dibatalkan."
+                description="Tanda tangan fisik dan digital Anda akan dihapus sekaligus dari dokumen ini. Tindakan ini tidak dapat dibatalkan."
                 confirmText="Hapus"
                 cancelText="Batal"
                 variant="destructive"

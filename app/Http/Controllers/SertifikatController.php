@@ -2,29 +2,32 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendSingleCertificateEmailJob;
+use App\Models\CertificateRecipient;
 use App\Models\Sertifikat;
 use App\Models\TemplateSertif;
-use App\Models\CertificateRecipient;
 use App\Models\User;
 use App\Services\CertificateService;
-use App\Services\ExcelTemplateService;
 use App\Services\EmailService;
+use App\Services\ExcelTemplateService;
 use App\Services\SignatureService;
-use App\Jobs\SendCertificateEmailsJob;
-use App\Jobs\SendSingleCertificateEmailJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Maatwebsite\Excel\Facades\Excel;
-use ZipArchive;
 
 class SertifikatController extends Controller
 {
     protected CertificateService $certificateService;
+
     protected ExcelTemplateService $excelTemplateService;
+
     protected EmailService $emailService;
+
     protected SignatureService $signatureService;
 
     public function __construct(
@@ -38,6 +41,28 @@ class SertifikatController extends Controller
         $this->emailService = $emailService;
         $this->signatureService = $signatureService;
     }
+
+    /**
+     * Pastikan user berwenang mengakses sertifikat: admin/pimpinan (pengelola)
+     * atau penerima sertifikat itu sendiri.
+     */
+    protected function authorizeCertificateAccess(Sertifikat $sertifikat): void
+    {
+        $user = Auth::user();
+
+        if ($user->isAdmin() || $user->isPimpinan()) {
+            return;
+        }
+
+        $isRecipient = $sertifikat->certificateRecipients()
+            ->where('userId', $user->id)
+            ->exists();
+
+        if (! $isRecipient) {
+            abort(403, 'Anda tidak memiliki akses ke sertifikat ini.');
+        }
+    }
+
     public function index(Request $request)
     {
         $search = $request->input('search');
@@ -47,7 +72,7 @@ class SertifikatController extends Controller
             'templateSertif' => function ($query) {
                 $query->withTrashed(); // Include soft deleted templates
             },
-            'certificateRecipients.user'
+            'certificateRecipients.user',
         ])
             ->when($search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
@@ -59,35 +84,35 @@ class SertifikatController extends Controller
                 });
             })
             ->when($emailStatus, function ($query, $status) {
-            switch ($status) {
-                case 'sent':
-                    $query->where('email_sent_status', 'sent');
-                    break;
-                case 'pending':
-                    $query->where('email_sent_status', 'pending');
-                    break;
-                case 'failed':
-                    $query->where('email_sent_status', 'failed');
-                    break;
-                case 'unsent':
-                    $query->whereNull('email_sent_at');
-                    break;
-            }
-        })
-        ->latest('created_at');
+                switch ($status) {
+                    case 'sent':
+                        $query->where('email_sent_status', 'sent');
+                        break;
+                    case 'pending':
+                        $query->where('email_sent_status', 'pending');
+                        break;
+                    case 'failed':
+                        $query->where('email_sent_status', 'failed');
+                        break;
+                    case 'unsent':
+                        $query->whereNull('email_sent_at');
+                        break;
+                }
+            })
+            ->latest('created_at');
 
         // Handle per_page parameter for pagination
         $perPage = $request->input('per_page', 15); // Default 15
-        
+
         if ($perPage === 'all') {
             // When "all" is selected, get total count but limit to reasonable max
             $totalCount = $sertifikats->count();
             $perPage = min($totalCount, 500); // Max 500 to prevent performance issues
-            
+
             Log::info('Pagination set to ALL', ['total' => $totalCount, 'limited_to' => $perPage]);
         } else {
             // Validate per_page is a valid number
-            $perPage = in_array((int)$perPage, [10, 20, 15]) ? (int)$perPage : 15;
+            $perPage = in_array((int) $perPage, [10, 20, 15]) ? (int) $perPage : 15;
         }
 
         $sertifikats = $sertifikats->paginate($perPage)->appends($request->except('page'));
@@ -97,7 +122,7 @@ class SertifikatController extends Controller
             'total_count' => $sertifikats->total(),
             'data_count' => $sertifikats->count(),
             'current_page' => $sertifikats->currentPage(),
-            'has_data' => $sertifikats->count() > 0
+            'has_data' => $sertifikats->count() > 0,
         ]);
 
         if ($sertifikats->count() > 0) {
@@ -109,7 +134,7 @@ class SertifikatController extends Controller
                 'templateSertifId' => $first->templateSertifId,
                 'has_templateSertif' => $first->templateSertif !== null,
                 'templateSertif_title' => $first->templateSertif?->title,
-                'certificateRecipients_count' => $first->certificateRecipients?->count() ?? 0
+                'certificateRecipients_count' => $first->certificateRecipients?->count() ?? 0,
             ]);
         }
 
@@ -117,7 +142,7 @@ class SertifikatController extends Controller
         $sertifikats->getCollection()->transform(function ($sertifikat) {
             // Get email from sertifikat or from first recipient if available
             $email = $sertifikat->email;
-            if (!$email && $sertifikat->certificateRecipients && $sertifikat->certificateRecipients->count() > 0) {
+            if (! $email && $sertifikat->certificateRecipients && $sertifikat->certificateRecipients->count() > 0) {
                 $firstRecipient = $sertifikat->certificateRecipients->first();
                 $email = $firstRecipient->user->email ?? null;
             }
@@ -151,7 +176,7 @@ class SertifikatController extends Controller
         return Inertia::render('Certificates/Index', [
             'sertifikats' => $sertifikats,
             'user' => Auth::user(),
-            'search' => $search
+            'search' => $search,
         ]);
     }
 
@@ -161,7 +186,7 @@ class SertifikatController extends Controller
     {
         Log::info('BulkCreate method called', [
             'user_id' => Auth::id(),
-            'user_role' => Auth::user()->role ?? 'no_role'
+            'user_role' => Auth::user()->role ?? 'no_role',
         ]);
 
         $templates = TemplateSertif::whereHas('review', function ($query) {
@@ -180,7 +205,7 @@ class SertifikatController extends Controller
                     'description' => $template->description,
                     'signed_template_path' => $template->signed_template_path,
                     'variable_positions' => $template->variable_positions,
-                    'has_variables_mapped' => !empty($template->variable_positions),
+                    'has_variables_mapped' => ! empty($template->variable_positions),
                 ];
             })
             ->values(); // Reset keys after filter
@@ -196,15 +221,16 @@ class SertifikatController extends Controller
         try {
             $result = Inertia::render('Certificates/BulkCreateWizard', [
                 'templates' => $templates,
-                'user' => Auth::user()
+                'user' => Auth::user(),
             ]);
 
             Log::info('BulkCreate view rendered successfully');
+
             return $result;
         } catch (\Exception $e) {
             Log::error('Failed to render BulkCreate view', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
@@ -214,216 +240,70 @@ class SertifikatController extends Controller
     {
         $request->validate([
             'templateSertifId' => 'required|exists:template_sertif,id',
-            'excel_file' => 'required|file|mimes:csv,xlsx,xls|max:10240'
+            'excel_file' => 'required|file|mimes:csv,xlsx,xls|max:10240',
         ]);
 
         $file = $request->file('excel_file');
 
         // Baca file Excel menggunakan maatwebsite/excel
-        $rows = Excel::toArray(new \stdClass(), $file);
+        $rows = Excel::toArray(new \stdClass, $file);
         $rows = $rows[0]; // Ambil sheet pertama
 
         $errors = [];
         $success = 0;
 
         foreach ($rows as $index => $row) {
-            if ($index === 0) continue; // Skip header
+            if ($index === 0) {
+                continue;
+            } // Skip header
 
             $nomorSertif = $row[0] ?? null;
             $userEmail = $row[1] ?? null;
             $issuedAt = $row[2] ?? now()->format('Y-m-d');
 
-            if (!$nomorSertif || !$userEmail) {
-                $errors[] = "Baris " . ($index + 1) . ": Nomor sertifikat dan email wajib diisi";
+            if (! $nomorSertif || ! $userEmail) {
+                $errors[] = 'Baris '.($index + 1).': Nomor sertifikat dan email wajib diisi';
+
                 continue;
             }
 
             $user = User::where('email', $userEmail)->first();
-            if (!$user) {
-                $errors[] = "Baris " . ($index + 1) . ": User dengan email $userEmail tidak ditemukan";
+            if (! $user) {
+                $errors[] = 'Baris '.($index + 1).": User dengan email $userEmail tidak ditemukan";
+
                 continue;
             }
 
             if (Sertifikat::where('nomor_sertif', $nomorSertif)->exists()) {
-                $errors[] = "Baris " . ($index + 1) . ": Nomor sertifikat $nomorSertif sudah ada";
+                $errors[] = 'Baris '.($index + 1).": Nomor sertifikat $nomorSertif sudah ada";
+
                 continue;
             }
 
             try {
                 $sertifikat = Sertifikat::create([
                     'templateSertifId' => $request->templateSertifId,
-                    'nomor_sertif' => $nomorSertif
+                    'nomor_sertif' => $nomorSertif,
                 ]);
 
                 CertificateRecipient::create([
                     'sertifikatId' => $sertifikat->id,
                     'userId' => $user->id,
-                    'issuedAt' => $issuedAt
+                    'issuedAt' => $issuedAt,
                 ]);
 
                 $success++;
             } catch (\Exception $e) {
-                $errors[] = "Baris " . ($index + 1) . ": " . $e->getMessage();
+                $errors[] = 'Baris '.($index + 1).': '.$e->getMessage();
             }
         }
 
         $message = "Berhasil membuat $success sertifikat";
-        if (!empty($errors)) {
-            $message .= ". Error: " . implode(', ', $errors);
+        if (! empty($errors)) {
+            $message .= '. Error: '.implode(', ', $errors);
         }
 
         return redirect()->route('certificates.index')->with('success', $message);
-    }
-
-    public function signTemplate(Request $request, TemplateSertif $template)
-    {
-        $request->validate([
-            'signatureData' => 'required|string',
-            'passphrase' => 'nullable|string',
-            'signedPdfBase64' => 'nullable|string',
-            'position' => 'nullable|array',
-        ]);
-
-        try {
-            $user = Auth::user();
-
-            Log::info('Template signing attempt', [
-                'template_id' => $template->id,
-                'user_id' => $user->id,
-                'user_role' => $user->role,
-                'has_signed_pdf' => $request->has('signedPdfBase64'),
-                'has_position' => $request->has('position'),
-                'position_data' => $request->position,
-            ]);
-
-            // Only pimpinan can sign templates
-            if ($user->role !== 'pimpinan') {
-                return redirect()->back()
-                    ->with('error', 'Hanya pimpinan yang dapat menandatangani template.');
-            }
-
-            // Check if user is a designated signer
-            $signer = $template->signers()->where('user_id', $user->id)->first();
-            if (!$signer) {
-                return redirect()->back()
-                    ->with('error', 'Anda tidak terdaftar sebagai penanda tangan untuk template ini.');
-            }
-
-            // Check if user already signed
-            if ($signer->is_signed) {
-                return redirect()->back()
-                    ->with('error', 'Anda sudah menandatangani template ini.');
-            }
-
-            // If we have signedPdfBase64, that means the signature was created with canvas
-            if ($request->has('signedPdfBase64') && $request->signedPdfBase64) {
-                Log::info('Creating physical signature record...');
-
-                try {
-                    // Create physical signature record in database
-                    $physicalSignature = $this->signatureService->createPhysicalSignature([
-                        'templateSertifId' => $template->id,
-                        'userId' => Auth::id(),
-                        'signatureData' => $request->signatureData,
-                        'position' => $request->position,
-                    ]);
-
-                    Log::info('Physical signature created', ['id' => $physicalSignature->id]);
-                } catch (\Exception $e) {
-                    Log::error('Failed to create physical signature', [
-                        'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString(),
-                    ]);
-                    throw $e;
-                }
-
-                // Create digital signature record for verification (always create like document)
-                Log::info('Creating digital signature record...');
-
-                try {
-                    $digitalSignature = $this->signatureService->createDigitalSignature([
-                        'templateSertifId' => $template->id,
-                        'userId' => Auth::id(),
-                        'position' => [
-                            'x' => $request->position['x'],
-                            'y' => $request->position['y'] + ($request->position['height'] ?? 75) + 10,
-                            'width' => 200,
-                            'height' => 60,
-                            'page' => $request->position['page'] ?? 1,
-                        ],
-                        'passphrase' => $request->passphrase,
-                    ]);
-
-                    Log::info('Digital signature created', ['id' => $digitalSignature->id]);
-                } catch (\Exception $e) {
-                    Log::error('Failed to create digital signature', [
-                        'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString(),
-                    ]);
-                    throw $e;
-                }
-
-                // Save the signed PDF file using SignatureService like document
-                Log::info('Attempting to save signed PDF template', [
-                    'template_id' => $template->id,
-                    'data_length' => strlen($request->signedPdfBase64)
-                ]);
-
-                try {
-                    $this->signatureService->saveSignedPDFTemplate($template, $request->signedPdfBase64);
-                    Log::info('Signed PDF template saved successfully');
-                } catch (\Exception $e) {
-                    Log::error('Failed to save signed PDF template', [
-                        'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString(),
-                    ]);
-                    throw $e;
-                }
-
-                Log::info('Template signed successfully', [
-                    'template_id' => $template->id,
-                ]);
-
-                // Update signer status
-                $signer->update(['is_signed' => true]);
-
-                // Check if all signers have signed
-                if ($template->fresh()->isCompleted()) {
-                    Log::info('Template fully signed.');
-                }
-
-                return redirect()->route('templates.show', $template->id)
-                    ->with('success', 'Template berhasil ditandatangani!');
-            } else {
-                // Fallback to old method if no PDF provided
-                $signedPath = $this->certificateService->signTemplate(
-                    $template,
-                    $user,
-                    $request->only(['signatureData'])
-                );
-
-                $signedPath = $this->certificateService->signTemplate(
-                    $template,
-                    $user,
-                    $request->only(['signatureData'])
-                );
-
-                // Update signer status
-                $signer->update(['is_signed' => true]);
-
-                return redirect()->route('templates.show', $template->id)
-                    ->with('success', 'Template berhasil ditandatangani!');
-            }
-        } catch (\Exception $e) {
-            Log::error('Template signing failed', [
-                'template_id' => $template->id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return redirect()->back()
-                ->with('error', $e->getMessage());
-        }
     }
 
     public function generateBulkCertificates(Request $request)
@@ -433,21 +313,21 @@ class SertifikatController extends Controller
             'recipients' => 'required|array|min:1',
             'recipients.*.userId' => 'required|exists:users,id',
             'recipients.*.nomor_sertif' => 'required|string|unique:sertifikat,nomor_sertif',
-            'recipients.*.issuedAt' => 'nullable|date'
+            'recipients.*.issuedAt' => 'nullable|date',
         ]);
 
         try {
             $result = $this->certificateService->generateBulkCertificates($request->all());
 
             $message = "Berhasil generate {$result['success_count']} sertifikat";
-            if (!empty($result['errors'])) {
-                $message .= ". Error: " . implode(', ', $result['errors']);
+            if (! empty($result['errors'])) {
+                $message .= '. Error: '.implode(', ', $result['errors']);
             }
 
             return redirect()->route('certificates.index')->with('success', $message);
         } catch (\Exception $e) {
             return redirect()->route('certificates.bulk.create')
-                ->with('error', 'Gagal generate sertifikat: ' . $e->getMessage());
+                ->with('error', 'Gagal generate sertifikat: '.$e->getMessage());
         }
     }
 
@@ -462,13 +342,15 @@ class SertifikatController extends Controller
                 $sertifikat = Sertifikat::findOrFail($certificate);
             }
 
+            $this->authorizeCertificateAccess($sertifikat);
+
             $certificatePath = $this->certificateService->downloadCertificate($sertifikat);
 
-            return response()->download($certificatePath, 'Sertifikat_' . ($sertifikat->nomor_sertif ?? 'certificate') . '.pdf')
+            return response()->download($certificatePath, 'Sertifikat_'.($sertifikat->nomor_sertif ?? 'certificate').'.pdf')
                 ->deleteFileAfterSend(false);
         } catch (\Exception $e) {
             return redirect()->route('certificates.index')
-                ->with('error', 'Gagal download sertifikat: ' . $e->getMessage());
+                ->with('error', 'Gagal download sertifikat: '.$e->getMessage());
         }
     }
 
@@ -483,9 +365,11 @@ class SertifikatController extends Controller
                 $sertifikat = Sertifikat::findOrFail($certificate);
             }
 
+            $this->authorizeCertificateAccess($sertifikat);
+
             $certificatePath = $this->certificateService->downloadCertificate($sertifikat);
 
-            if (!file_exists($certificatePath)) {
+            if (! file_exists($certificatePath)) {
                 abort(404, 'File sertifikat tidak ditemukan');
             }
 
@@ -493,16 +377,16 @@ class SertifikatController extends Controller
 
             return response($file, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="Sertifikat_' . ($sertifikat->nomor_sertif ?? 'certificate') . '.pdf"',
+                'Content-Disposition' => 'inline; filename="Sertifikat_'.($sertifikat->nomor_sertif ?? 'certificate').'.pdf"',
                 'Access-Control-Allow-Origin' => '*',
                 'Accept-Ranges' => 'none', // Try to discourage IDM
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to view certificate', [
                 'certificate_id' => is_string($certificate) ? $certificate : ($certificate->id ?? 'unknown'),
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            abort(404, 'Gagal memuat sertifikat: ' . $e->getMessage());
+            abort(404, 'Gagal memuat sertifikat: '.$e->getMessage());
         }
     }
 
@@ -510,17 +394,17 @@ class SertifikatController extends Controller
     {
         $request->validate([
             'sertifikat_ids' => 'required|array|min:1',
-            'sertifikat_ids.*' => 'exists:sertifikat,id'
+            'sertifikat_ids.*' => 'exists:sertifikat,id',
         ]);
 
         try {
             $zipPath = $this->certificateService->downloadBulkCertificates($request->sertifikat_ids);
 
-            return response()->download($zipPath, 'Sertifikat_Bulk_' . date('Y-m-d_H-i-s') . '.zip')
+            return response()->download($zipPath, 'Sertifikat_Bulk_'.date('Y-m-d_H-i-s').'.zip')
                 ->deleteFileAfterSend(true);
         } catch (\Exception $e) {
             return redirect()->route('certificates.index')
-                ->with('error', 'Gagal download sertifikat bulk: ' . $e->getMessage());
+                ->with('error', 'Gagal download sertifikat bulk: '.$e->getMessage());
         }
     }
 
@@ -530,7 +414,7 @@ class SertifikatController extends Controller
 
         return response()->json([
             'is_signed' => $isSigned,
-            'template' => $template
+            'template' => $template,
         ]);
     }
 
@@ -543,7 +427,7 @@ class SertifikatController extends Controller
             return $this->excelTemplateService->downloadTemplateExcel($template);
         } catch (\Exception $e) {
             return redirect()->route('certificates.bulk.create')
-                ->with('error', 'Gagal download template Excel: ' . $e->getMessage());
+                ->with('error', 'Gagal download template Excel: '.$e->getMessage());
         }
     }
 
@@ -554,7 +438,7 @@ class SertifikatController extends Controller
             'request_data' => $request->except(['excel_file']),
             'has_file' => $request->hasFile('excel_file'),
             'templateSertifId' => $request->templateSertifId,
-            'excel_file_name' => $request->file('excel_file') ? $request->file('excel_file')->getClientOriginalName() : 'no_file'
+            'excel_file_name' => $request->file('excel_file') ? $request->file('excel_file')->getClientOriginalName() : 'no_file',
         ]);
 
         try {
@@ -562,7 +446,7 @@ class SertifikatController extends Controller
                 'templateSertifId' => 'required|exists:template_sertif,id',
                 'excel_file' => 'required|file|mimes:xlsx,xls|max:10240',
                 'passphrase' => 'nullable|string',
-                'show_qr_code' => 'boolean' // QR code toggle
+                'show_qr_code' => 'boolean', // QR code toggle
             ]);
 
             Log::info('Validation passed successfully');
@@ -571,23 +455,23 @@ class SertifikatController extends Controller
             Log::info('QR Code Toggle Value', [
                 'show_qr_code' => $request->show_qr_code,
                 'show_qr_code_type' => gettype($request->show_qr_code),
-                'all_request_data' => $request->except(['excel_file'])
+                'all_request_data' => $request->except(['excel_file']),
             ]);
 
             // CRITICAL FIX: Convert string "0"/"1" to boolean
             // Laravel sends checkbox as "0" or "1" string, not boolean
             // PHP type coercion treats non-empty string "0" as true, so we must convert explicitly
             $showQrCode = filter_var($request->show_qr_code, FILTER_VALIDATE_BOOLEAN);
-            
+
             Log::info('QR Code after boolean conversion', [
                 'original' => $request->show_qr_code,
                 'converted' => $showQrCode,
-                'type' => gettype($showQrCode)
+                'type' => gettype($showQrCode),
             ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             Log::error('Validation failed', [
                 'errors' => $e->errors(),
-                'request_data' => $request->except(['excel_file'])
+                'request_data' => $request->except(['excel_file']),
             ]);
             throw $e;
         }
@@ -596,19 +480,20 @@ class SertifikatController extends Controller
 
         try {
             $file = $request->file('excel_file');
-            $rows = Excel::toArray(new \stdClass(), $file);
+            $rows = Excel::toArray(new \stdClass, $file);
             $rows = $rows[0];
 
             Log::info('Excel data parsed', ['total_rows' => count($rows)]);
 
             // Get template to check variable positions
-            $template = \App\Models\TemplateSertif::findOrFail($request->templateSertifId);
+            $template = TemplateSertif::findOrFail($request->templateSertifId);
             $variablePositions = $template->variable_positions ?? [];
 
             $excelData = [];
             foreach ($rows as $index => $row) {
                 if ($index === 0) {
                     Log::info('Header row', ['header' => $row]);
+
                     continue; // Skip header
                 }
 
@@ -625,12 +510,12 @@ class SertifikatController extends Controller
                 'templateSertifId' => $request->templateSertifId,
                 'excelData' => $excelData,
                 'passphrase' => $request->passphrase,
-                'show_qr_code' => $showQrCode // Use converted boolean, not string from request
+                'show_qr_code' => $showQrCode, // Use converted boolean, not string from request
             ]);
 
             Log::info('Batch certificate generation started', [
                 'batch_id' => $result['batch_id'],
-                'total_jobs' => $result['total_jobs']
+                'total_jobs' => $result['total_jobs'],
             ]);
 
             // Redirect to progress page
@@ -641,26 +526,26 @@ class SertifikatController extends Controller
                 'user_id' => Auth::id(),
                 'template_id' => $request->templateSertifId,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return redirect()->route('certificates.bulk.create')
-                ->with('error', 'Gagal generate sertifikat: ' . $e->getMessage());
+                ->with('error', 'Gagal generate sertifikat: '.$e->getMessage());
         }
     }
 
     public function bulkProgress($batchId)
     {
         return Inertia::render('Certificates/BulkProgress', [
-            'batchId' => $batchId
+            'batchId' => $batchId,
         ]);
     }
 
     public function checkBatchStatus($batchId)
     {
-        $batch = \Illuminate\Support\Facades\Bus::findBatch($batchId);
+        $batch = Bus::findBatch($batchId);
 
-        if (!$batch) {
+        if (! $batch) {
             return response()->json(['error' => 'Batch not found'], 404);
         }
 
@@ -681,22 +566,22 @@ class SertifikatController extends Controller
         if ($request->has('select_all') && $request->select_all) {
             // Select all mode: use filters to get IDs
             $query = Sertifikat::query();
-            
+
             if ($request->filled('template_id')) {
                 $query->where('templateSertifId', $request->template_id);
             }
-            
+
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('nomor_sertif', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhereHas('templateSertif', function ($q) use ($search) {
-                          $q->where('title', 'like', "%{$search}%");
-                      });
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhereHas('templateSertif', function ($q) use ($search) {
+                            $q->where('title', 'like', "%{$search}%");
+                        });
                 });
             }
-            
+
             $certificateIds = $query->pluck('id')->toArray();
         } else {
             // Normal mode: validate and use provided IDs
@@ -704,7 +589,7 @@ class SertifikatController extends Controller
                 'sertifikat_ids' => 'required|array|min:1',
                 'sertifikat_ids.*' => 'exists:sertifikat,id',
             ]);
-            
+
             $certificateIds = $request->sertifikat_ids;
         }
 
@@ -724,11 +609,11 @@ class SertifikatController extends Controller
                 ->name('Send Certificate Emails')
                 ->onQueue('emails')
                 ->dispatch();
-            
+
             Log::info('Email batch dispatched', [
                 'user_id' => Auth::id(),
                 'batch_id' => $batch->id,
-                'total_jobs' => count($certificateIds)
+                'total_jobs' => count($certificateIds),
             ]);
 
             // Redirect to progress page
@@ -736,18 +621,18 @@ class SertifikatController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to dispatch email batch', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return redirect()->route('certificates.index')
-                ->with('error', 'Gagal memproses email: ' . $e->getMessage());
+                ->with('error', 'Gagal memproses email: '.$e->getMessage());
         }
     }
 
     public function emailProgress($batchId)
     {
         return Inertia::render('Certificates/EmailProgress', [
-            'batchId' => $batchId
+            'batchId' => $batchId,
         ]);
     }
 
@@ -755,7 +640,7 @@ class SertifikatController extends Controller
     {
         $batch = Bus::findBatch($batchId);
 
-        if (!$batch) {
+        if (! $batch) {
             return response()->json(['error' => 'Batch not found'], 404);
         }
 
@@ -765,19 +650,19 @@ class SertifikatController extends Controller
             $failedJobs = \DB::table('job_batches')
                 ->where('id', $batchId)
                 ->first();
-            
+
             // Get certificates that failed
             $failedCertificates = Sertifikat::whereNotNull('email_sent_error')
                 ->where('email_sent_status', 'failed')
                 ->whereDate('updated_at', '>=', $batch->createdAt)
                 ->get(['id', 'email', 'email_sent_error'])
-                ->map(function($cert) {
+                ->map(function ($cert) {
                     return [
                         'email' => $cert->email,
-                        'error' => $cert->email_sent_error
+                        'error' => $cert->email_sent_error,
                     ];
                 });
-            
+
             $failedJobDetails = $failedCertificates->toArray();
         }
 
@@ -803,11 +688,13 @@ class SertifikatController extends Controller
             $sertifikat = Sertifikat::findOrFail($certificate);
         }
 
+        $this->authorizeCertificateAccess($sertifikat);
+
         $sertifikat->load([
             'templateSertif' => function ($query) {
                 $query->withTrashed(); // Include soft deleted templates
             },
-            'certificateRecipients.user'
+            'certificateRecipients.user',
         ]);
 
         // Log untuk debugging
@@ -826,7 +713,7 @@ class SertifikatController extends Controller
 
         // Get email from sertifikat or from first recipient if available
         $email = $sertifikat->email;
-        if (!$email && $sertifikat->certificateRecipients && $sertifikat->certificateRecipients->count() > 0) {
+        if (! $email && $sertifikat->certificateRecipients && $sertifikat->certificateRecipients->count() > 0) {
             $firstRecipient = $sertifikat->certificateRecipients->first();
             $email = $firstRecipient->user->email ?? null;
         }
@@ -868,7 +755,7 @@ class SertifikatController extends Controller
 
         return Inertia::render('Certificates/Show', [
             'sertifikat' => $sertifikatData,
-            'user' => Auth::user()
+            'user' => Auth::user(),
         ]);
     }
 
@@ -896,10 +783,10 @@ class SertifikatController extends Controller
             $filePath = null;
             if ($sertifikat->file_path) {
                 // Pastikan path sudah benar (relative dari storage/app/)
-                $filePath = storage_path('app/' . ltrim($sertifikat->file_path, '/'));
+                $filePath = storage_path('app/'.ltrim($sertifikat->file_path, '/'));
             } else {
                 // Fallback ke path lama (untuk sertifikat lama yang belum punya file_path)
-                $filePath = storage_path('app/certificates/' . $certificateId . '.pdf');
+                $filePath = storage_path('app/certificates/'.$certificateId.'.pdf');
             }
 
             // Hapus relasi certificateRecipients terlebih dahulu (jika ada)
@@ -908,7 +795,7 @@ class SertifikatController extends Controller
                 $sertifikat->certificateRecipients()->delete();
                 Log::info('Certificate recipients deleted', [
                     'certificate_id' => $certificateId,
-                    'recipient_count' => $recipientCount
+                    'recipient_count' => $recipientCount,
                 ]);
             }
 
@@ -921,26 +808,26 @@ class SertifikatController extends Controller
                 Log::info('Certificate PDF file deleted', [
                     'file_path' => $filePath,
                     'certificate_id' => $certificateId,
-                    'nomor_sertif' => $nomorSertif
+                    'nomor_sertif' => $nomorSertif,
                 ]);
             }
 
             Log::info('Certificate deleted successfully', [
                 'certificate_id' => $certificateId,
-                'nomor_sertif' => $nomorSertif
+                'nomor_sertif' => $nomorSertif,
             ]);
 
             return redirect()->route('certificates.index')
-                ->with('success', 'Sertifikat ' . ($nomorSertif ?? '') . ' berhasil dihapus');
+                ->with('success', 'Sertifikat '.($nomorSertif ?? '').' berhasil dihapus');
         } catch (\Exception $e) {
             Log::error('Failed to delete certificate', [
                 'certificate_id' => is_string($certificate) ? $certificate : ($certificate->id ?? 'unknown'),
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return redirect()->route('certificates.index')
-                ->with('error', 'Gagal menghapus sertifikat: ' . $e->getMessage());
+                ->with('error', 'Gagal menghapus sertifikat: '.$e->getMessage());
         }
     }
 
@@ -950,30 +837,30 @@ class SertifikatController extends Controller
         if ($request->has('select_all') && $request->select_all) {
             // Select all mode: use filters to get IDs
             $query = Sertifikat::query();
-            
+
             if ($request->filled('template_id')) {
                 $query->where('templateSertifId', $request->template_id);
             }
-            
+
             if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('nomor_sertif', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhereHas('templateSertif', function ($q) use ($search) {
-                          $q->where('title', 'like', "%{$search}%");
-                      });
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhereHas('templateSertif', function ($q) use ($search) {
+                            $q->where('title', 'like', "%{$search}%");
+                        });
                 });
             }
-            
+
             $ids = $query->pluck('id')->toArray();
         } else {
             // Normal mode: use provided IDs
             $request->validate([
                 'ids' => 'required|array|min:1',
-                'ids.*' => 'exists:sertifikat,id'
+                'ids.*' => 'exists:sertifikat,id',
             ]);
-            
+
             $ids = $request->ids;
         }
 
@@ -984,39 +871,39 @@ class SertifikatController extends Controller
             foreach ($ids as $id) {
                 try {
                     $sertifikat = Sertifikat::findOrFail($id);
-                    
+
                     // Get file path
                     $filePath = null;
                     if ($sertifikat->file_path) {
-                        $filePath = storage_path('app/' . ltrim($sertifikat->file_path, '/'));
+                        $filePath = storage_path('app/'.ltrim($sertifikat->file_path, '/'));
                     } else {
-                        $filePath = storage_path('app/certificates/' . $id . '.pdf');
+                        $filePath = storage_path('app/certificates/'.$id.'.pdf');
                     }
 
                     // Delete certificate recipients
                     $sertifikat->certificateRecipients()->delete();
-                    
+
                     // Delete certificate record
                     $sertifikat->delete();
-                    
+
                     // Delete PDF file
                     if ($filePath && file_exists($filePath)) {
                         @unlink($filePath);
                     }
-                    
+
                     $deleted++;
                 } catch (\Exception $e) {
-                    $errors[] = "Gagal menghapus sertifikat {$id}: " . $e->getMessage();
+                    $errors[] = "Gagal menghapus sertifikat {$id}: ".$e->getMessage();
                     Log::error('Failed to delete certificate in bulk', [
                         'id' => $id,
-                        'error' => $e->getMessage()
+                        'error' => $e->getMessage(),
                     ]);
                 }
             }
 
             $message = "{$deleted} sertifikat berhasil dihapus";
-            if (!empty($errors)) {
-                $message .= ". " . implode(', ', $errors);
+            if (! empty($errors)) {
+                $message .= '. '.implode(', ', $errors);
             }
 
             return redirect()->route('certificates.index')
@@ -1024,11 +911,11 @@ class SertifikatController extends Controller
         } catch (\Exception $e) {
             Log::error('Bulk delete failed', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return redirect()->route('certificates.index')
-                ->with('error', 'Gagal menghapus sertifikat: ' . $e->getMessage());
+                ->with('error', 'Gagal menghapus sertifikat: '.$e->getMessage());
         }
     }
 
@@ -1043,20 +930,20 @@ class SertifikatController extends Controller
                 $sertifikat = Sertifikat::where('nomor_sertif', $certificate)->first();
 
                 // If not found by nomor_sertif, try by UUID
-                if (!$sertifikat) {
+                if (! $sertifikat) {
                     $sertifikat = Sertifikat::find($certificate);
                 }
             }
 
-            if (!$sertifikat) {
+            if (! $sertifikat) {
                 Log::warning('Certificate not found for verification', [
-                    'certificate_param' => $certificate
+                    'certificate_param' => $certificate,
                 ]);
 
                 return Inertia::render('Verification/Certificate', [
                     'certificate' => null,
                     'success' => false,
-                    'message' => 'Sertifikat tidak ditemukan. Pastikan nomor sertifikat benar.'
+                    'message' => 'Sertifikat tidak ditemukan. Pastikan nomor sertifikat benar.',
                 ]);
             }
 
@@ -1064,12 +951,26 @@ class SertifikatController extends Controller
                 'templateSertif' => function ($query) {
                     $query->withTrashed(); // Include soft deleted templates
                 },
-                'certificateRecipients.user'
+                'certificateRecipients.user',
             ]);
+
+            // Bandingkan hash aktual file PDF sertifikat saat ini dengan content_hash
+            // yang tersimpan saat sertifikat digenerate, untuk deteksi tampering.
+            $integrityStatus = 'unknown';
+            if ($sertifikat->content_hash) {
+                $certificatePath = $sertifikat->file_path
+                    ? storage_path('app/'.$sertifikat->file_path)
+                    : null;
+                $currentHash = $certificatePath ? $this->signatureService->hashFile($certificatePath) : null;
+
+                $integrityStatus = $currentHash === null
+                    ? 'file_missing'
+                    : ($currentHash === $sertifikat->content_hash ? 'valid' : 'tampered');
+            }
 
             // Get email from sertifikat or certificateRecipients
             $email = $sertifikat->email;
-            if (!$email && $sertifikat->certificateRecipients && $sertifikat->certificateRecipients->count() > 0) {
+            if (! $email && $sertifikat->certificateRecipients && $sertifikat->certificateRecipients->count() > 0) {
                 $firstRecipient = $sertifikat->certificateRecipients->first();
                 $email = $firstRecipient->user->email ?? null;
             }
@@ -1084,7 +985,7 @@ class SertifikatController extends Controller
                         'issued_at' => $recipient->issuedAt ? $recipient->issuedAt->format('d/m/Y H:i:s') : null,
                     ];
                 })->toArray();
-            } else if ($email) {
+            } elseif ($email) {
                 // If no certificateRecipients but email exists, create a recipient entry
                 $recipients = [[
                     'name' => 'Penerima Sertifikat',
@@ -1099,32 +1000,40 @@ class SertifikatController extends Controller
                 'template_title' => $sertifikat->templateSertif->title ?? 'Unknown Template',
                 'issued_at' => $sertifikat->created_at ? $sertifikat->created_at->format('d/m/Y H:i:s') : 'N/A',
                 'recipients' => $recipients,
-                'verification_status' => 'valid',
+                'verification_status' => $integrityStatus,
                 'verified_at' => now()->format('d/m/Y H:i:s'),
-                'verification_hash' => hash('sha256', $sertifikat->id . ($sertifikat->nomor_sertif ?? '') . ($sertifikat->created_at ? $sertifikat->created_at->toISOString() : ''))
+                'content_hash' => $sertifikat->content_hash,
             ];
 
-            Log::info('Certificate verified successfully', [
+            $integrityMessages = [
+                'valid' => 'Sertifikat berhasil diverifikasi dan file belum diubah sejak diterbitkan.',
+                'tampered' => 'PERINGATAN: File sertifikat telah diubah sejak diterbitkan. Hash tidak cocok.',
+                'file_missing' => 'File sertifikat tidak ditemukan di server untuk verifikasi integritas.',
+                'unknown' => 'Sertifikat ditemukan, namun tidak memiliki data hash untuk verifikasi integritas (sertifikat lama).',
+            ];
+
+            Log::info('Certificate verified', [
                 'certificate_id' => $sertifikat->id,
-                'certificate_number' => $sertifikat->nomor_sertif
+                'certificate_number' => $sertifikat->nomor_sertif,
+                'integrity_status' => $integrityStatus,
             ]);
 
             return Inertia::render('Verification/Certificate', [
                 'certificate' => $verificationData,
-                'success' => true,
-                'message' => 'Sertifikat berhasil diverifikasi'
+                'success' => $integrityStatus !== 'tampered',
+                'message' => $integrityMessages[$integrityStatus],
             ]);
         } catch (\Exception $e) {
             Log::error('Certificate verification failed', [
                 'certificate_param' => is_string($certificate) ? $certificate : ($certificate->id ?? 'unknown'),
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return Inertia::render('Verification/Certificate', [
                 'certificate' => null,
                 'success' => false,
-                'message' => 'Gagal memverifikasi sertifikat: ' . $e->getMessage()
+                'message' => 'Gagal memverifikasi sertifikat: '.$e->getMessage(),
             ]);
         }
     }

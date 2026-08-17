@@ -1,48 +1,20 @@
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 
 export const useToast = () => {
     const success = (message: string) => {
-        toast.success(message, {
-            position: 'top-right',
-            autoClose: 3000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-        });
+        toast.success(message);
     };
 
     const error = (message: string) => {
-        toast.error(message, {
-            position: 'top-right',
-            autoClose: 5000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-        });
+        toast.error(message);
     };
 
     const info = (message: string) => {
-        toast.info(message, {
-            position: 'top-right',
-            autoClose: 3000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-        });
+        toast.info(message);
     };
 
     const warning = (message: string) => {
-        toast.warn(message, {
-            position: 'top-right',
-            autoClose: 4000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-        });
+        toast.warning(message);
     };
 
     return {

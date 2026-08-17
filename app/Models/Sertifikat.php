@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Database\Factories\SertifikatFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -10,7 +12,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Sertifikat extends Model
 {
-    use SoftDeletes, HasUuids;
+    /** @use HasFactory<SertifikatFactory> */
+    use HasFactory, HasUuids, SoftDeletes;
 
     protected $table = 'sertifikat';
 
@@ -19,6 +22,7 @@ class Sertifikat extends Model
         'nomor_sertif',
         'email',
         'file_path',
+        'content_hash',
         'email_sent_at',
         'email_sent_status',
         'email_sent_error',
@@ -32,6 +36,7 @@ class Sertifikat extends Model
 
     // Override timestamp column names
     const CREATED_AT = 'created_at';
+
     const UPDATED_AT = 'updated_at';
 
     public function templateSertif(): BelongsTo
@@ -53,7 +58,7 @@ class Sertifikat extends Model
         $sertifikat = $this->where('nomor_sertif', $value)->first();
 
         // If not found, try by UUID (default behavior)
-        if (!$sertifikat) {
+        if (! $sertifikat) {
             $sertifikat = $this->where($field ?? $this->getRouteKeyName(), $value)->first();
         }
 

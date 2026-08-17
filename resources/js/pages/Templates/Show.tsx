@@ -1,11 +1,12 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import ConfirmModal from '@/components/ui/confirm-modal';
 import { useModal } from '@/hooks/use-modal';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router } from '@inertiajs/react';
-import { Calendar, Eye, FileCheck, Plus, Trash2, User } from 'lucide-react';
+import { Calendar, ChevronDown, Eye, FileCheck, Plus, Trash2, User } from 'lucide-react';
 import { useState } from 'react';
 
 interface User {
@@ -46,10 +47,12 @@ interface Template {
 interface Props {
     template: Template;
     user: User;
+    isCompleted: boolean;
 }
 
-export default function TemplatesShow({ template, user }: Props) {
+export default function TemplatesShow({ template, user, isCompleted }: Props) {
     const [isRemoving, setIsRemoving] = useState(false);
+    const [infoOpen, setInfoOpen] = useState(false);
     const confirmModal = useModal();
 
     const getStatusBadge = (status: string) => {
@@ -89,7 +92,11 @@ export default function TemplatesShow({ template, user }: Props) {
         );
 
     const canRemoveSignature =
-        user.role === 'pimpinan' && template.signed_template_path;
+        user.role === 'pimpinan' &&
+        !!template.signers?.some(
+            (signer) => signer.user.id === user.id && signer.is_signed,
+        ) &&
+        !isCompleted;
 
     const handleRemoveSignature = () => {
         confirmModal.open();
@@ -114,17 +121,17 @@ export default function TemplatesShow({ template, user }: Props) {
     return (
         <AppLayout>
             <Head title={`Template - ${template.title}`} />
-            <div className="flex h-full flex-1 flex-col gap-6 overflow-x-auto rounded-xl p-6">
-                <div className="flex items-center justify-between">
+            <div className="flex h-full flex-1 flex-col gap-4 rounded-xl p-4 sm:gap-6 sm:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900">
+                        <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
                             {template.title}
                         </h1>
-                        <p className="text-gray-600">
+                        <p className="text-sm text-gray-600 sm:text-base">
                             Detail template sertifikat
                         </p>
                     </div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {getStatusBadge(template.review.status)}
                         {template.signed_template_path && (
                             <Badge className="bg-blue-100 text-blue-800">
@@ -134,254 +141,233 @@ export default function TemplatesShow({ template, user }: Props) {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                    {/* Template Preview */}
-                    <div className="lg:col-span-2">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center">
-                                    <FileCheck className="mr-2 h-5 w-5" />
-                                    {template.signed_template_path
-                                        ? 'Template Bertanda Tangan'
-                                        : 'Preview Template'}
+                {/* Compact info bar on top, expandable */}
+                <Card>
+                    <Collapsible open={infoOpen} onOpenChange={setInfoOpen}>
+                        <CollapsibleTrigger className="w-full">
+                            <CardHeader className="flex w-full flex-row items-center justify-between py-3">
+                                <CardTitle className="flex items-center text-sm sm:text-base">
+                                    <Calendar className="mr-2 h-4 w-4" />
+                                    Informasi & Status
                                 </CardTitle>
+                                <ChevronDown
+                                    className={`h-4 w-4 transition-transform ${
+                                        infoOpen ? 'rotate-180' : ''
+                                    }`}
+                                />
                             </CardHeader>
-                            <CardContent>
-                                <div
-                                    className="rounded-lg border border-gray-300"
-                                    style={{ height: '600px' }}
-                                >
-                                    <iframe
-                                        src={
-                                            template.signed_template_path
-                                                ? `/storage/${template.signed_template_path}`
-                                                : `/templates/${template.id}/preview`
-                                        }
-                                        className="h-full w-full rounded-lg"
-                                        title="Template Preview"
-                                    />
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* Template Details */}
-                    <div className="space-y-6">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Informasi Template</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <CardContent className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">
                                 <div>
-                                    <h4 className="font-medium text-gray-900">
+                                    <h4 className="text-xs font-medium text-gray-500 uppercase">
                                         Judul Template
                                     </h4>
-                                    <p className="text-gray-600">
+                                    <p className="mt-1 text-sm break-words text-gray-800">
                                         {template.title}
                                     </p>
                                 </div>
-
                                 {template.description && (
                                     <div>
-                                        <h4 className="font-medium text-gray-900">
+                                        <h4 className="text-xs font-medium text-gray-500 uppercase">
                                             Deskripsi
                                         </h4>
-                                        <p className="text-gray-600">
+                                        <p className="mt-1 text-sm break-words text-gray-800">
                                             {template.description}
                                         </p>
                                     </div>
                                 )}
-
                                 <div>
-                                    <h4 className="font-medium text-gray-900">
+                                    <h4 className="text-xs font-medium text-gray-500 uppercase">
                                         File Template
                                     </h4>
-                                    <p className="text-gray-600">
+                                    <p className="mt-1 text-sm break-words text-gray-800">
                                         {template.files}
                                     </p>
                                 </div>
-
-                                <div className="grid grid-cols-1 gap-4">
-                                    <div>
-                                        <h4 className="font-medium text-gray-900">
-                                            Tanggal Dibuat
-                                        </h4>
-                                        <p className="text-gray-600">
-                                            {new Date(
-                                                template.created_at,
-                                            ).toLocaleDateString('id-ID')}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <h4 className="font-medium text-gray-900">
-                                            Terakhir Diupdate
-                                        </h4>
-                                        <p className="text-gray-600">
-                                            {new Date(
-                                                template.updatedAt,
-                                            ).toLocaleDateString('id-ID')}
-                                        </p>
+                                <div>
+                                    <h4 className="text-xs font-medium text-gray-500 uppercase">
+                                        Tanggal Dibuat
+                                    </h4>
+                                    <p className="mt-1 text-sm text-gray-800">
+                                        {new Date(
+                                            template.created_at,
+                                        ).toLocaleDateString('id-ID')}
+                                    </p>
+                                </div>
+                                <div>
+                                    <h4 className="text-xs font-medium text-gray-500 uppercase">
+                                        Terakhir Diupdate
+                                    </h4>
+                                    <p className="mt-1 text-sm text-gray-800">
+                                        {new Date(
+                                            template.updatedAt,
+                                        ).toLocaleDateString('id-ID')}
+                                    </p>
+                                </div>
+                                <div>
+                                    <h4 className="text-xs font-medium text-gray-500 uppercase">
+                                        Status Review
+                                    </h4>
+                                    <div className="mt-1">
+                                        {getStatusBadge(template.review.status)}
                                     </div>
                                 </div>
-
+                                {template.review.disetujuiBy && (
+                                    <div>
+                                        <h4 className="text-xs font-medium text-gray-500 uppercase">
+                                            Disetujui Oleh
+                                        </h4>
+                                        <p className="mt-1 flex items-center text-sm text-gray-800">
+                                            <User className="mr-1 h-3 w-3 text-gray-500" />
+                                            {template.review.disetujuiBy.name}
+                                        </p>
+                                    </div>
+                                )}
                                 <div>
-                                    <h4 className="font-medium text-gray-900 mb-2">
+                                    <h4 className="text-xs font-medium text-gray-500 uppercase">
                                         Status Penanda Tangan
                                     </h4>
-                                    <div className="space-y-2">
+                                    <div className="mt-1 space-y-1">
                                         {template.signers?.map((signer) => (
-                                            <div key={signer.id} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded">
-                                                <div className="flex items-center">
-                                                    <User className="mr-2 h-4 w-4 text-gray-500" />
-                                                    <span>{signer.user.name}</span>
-                                                </div>
-                                                <Badge variant={signer.is_signed ? "default" : "outline"} className={signer.is_signed ? "bg-green-100 text-green-800" : "text-gray-500"}>
-                                                    {signer.is_signed ? "Sudah TTD" : "Belum TTD"}
+                                            <div
+                                                key={signer.id}
+                                                className="flex items-center justify-between gap-2 text-sm"
+                                            >
+                                                <span className="flex items-center text-gray-800">
+                                                    <User className="mr-1 h-3 w-3 text-gray-500" />
+                                                    {signer.user.name}
+                                                </span>
+                                                <Badge
+                                                    variant={
+                                                        signer.is_signed
+                                                            ? 'default'
+                                                            : 'outline'
+                                                    }
+                                                    className={
+                                                        signer.is_signed
+                                                            ? 'bg-green-100 text-green-800'
+                                                            : 'text-gray-500'
+                                                    }
+                                                >
+                                                    {signer.is_signed
+                                                        ? 'Sudah TTD'
+                                                        : 'Belum TTD'}
                                                 </Badge>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                             </CardContent>
-                        </Card>
-                        {/* Actions */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Aksi</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                <Button
-                                    variant="outline"
-                                    className="w-full"
-                                    onClick={() =>
-                                        window.open(
-                                            `/templates/${template.id}/preview`,
-                                            '_blank',
-                                        )
-                                    }
-                                >
-                                    <Eye className="mr-2 h-4 w-4" />
-                                    Lihat File Template
-                                </Button>
+                        </CollapsibleContent>
+                    </Collapsible>
+                </Card>
 
-                                {template.signed_template_path && (
-                                    <>
-                                        <Button
-                                            variant="outline"
-                                            className="w-full"
-                                            onClick={() =>
-                                                window.open(
-                                                    `/templates/${template.id}/download-signed`,
-                                                    '_blank',
-                                                )
-                                            }
-                                        >
-                                            <Eye className="mr-2 h-4 w-4" />
-                                            Lihat Template Bertanda Tangan
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                                            onClick={() =>
-                                                router.visit(
-                                                    `/templates/${template.id}/map-variables`,
-                                                )
-                                            }
-                                        >
-                                            <Plus className="mr-2 h-4 w-4" />
-                                            Mapping Variabel untuk Bulk
-                                        </Button>
-                                    </>
-                                )}
+                {/* Actions, inline row for quick access */}
+                <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                            window.open(
+                                `/templates/${template.id}/preview`,
+                                '_blank',
+                            )
+                        }
+                    >
+                        <Eye className="mr-1 h-4 w-4" />
+                        Lihat File Template
+                    </Button>
 
-                                {canSign && (
-                                    <Button
-                                        className="w-full bg-green-600 hover:bg-green-700"
-                                        onClick={() =>
-                                            router.visit(
-                                                `/templates/${template.id}/sign`,
-                                            )
-                                        }
-                                    >
-                                        <Plus className="mr-2 h-4 w-4" />
-                                        Tanda Tangan Template
-                                    </Button>
-                                )}
+                    {template.signed_template_path && (
+                        <>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                    window.open(
+                                        `/templates/${template.id}/download-signed`,
+                                        '_blank',
+                                    )
+                                }
+                            >
+                                <Eye className="mr-1 h-4 w-4" />
+                                Lihat Bertanda Tangan
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="bg-blue-600 text-white hover:bg-blue-700"
+                                onClick={() =>
+                                    router.visit(
+                                        `/templates/${template.id}/map-variables`,
+                                    )
+                                }
+                            >
+                                <Plus className="mr-1 h-4 w-4" />
+                                Mapping Variabel untuk Bulk
+                            </Button>
+                        </>
+                    )}
 
-                                {canRemoveSignature && (
-                                    <Button
-                                        variant="outline"
-                                        onClick={handleRemoveSignature}
-                                        className="w-full text-red-600 hover:bg-red-50 hover:text-red-700"
-                                        disabled={isRemoving}
-                                    >
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        {isRemoving
-                                            ? 'Menghapus...'
-                                            : 'Hapus Tanda Tangan'}
-                                    </Button>
-                                )}
-                            </CardContent>
-                        </Card>
+                    {canSign && (
+                        <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() =>
+                                router.visit(
+                                    `/templates/${template.id}/sign`,
+                                )
+                            }
+                        >
+                            <Plus className="mr-1 h-4 w-4" />
+                            Tanda Tangan Template
+                        </Button>
+                    )}
 
-                        {/* Review Status */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center">
-                                    <Calendar className="mr-2 h-5 w-5" />
-                                    Status Review
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div>
-                                    <h4 className="font-medium text-gray-900">
-                                        Status
-                                    </h4>
-                                    {getStatusBadge(template.review.status)}
-                                </div>
-
-                                {template.review.komentar && (
-                                    <div>
-                                        <h4 className="font-medium text-gray-900">
-                                            Komentar
-                                        </h4>
-                                        <p className="text-gray-600">
-                                            {template.review.komentar}
-                                        </p>
-                                    </div>
-                                )}
-
-                                {template.review.disetujuiBy && (
-                                    <div>
-                                        <h4 className="font-medium text-gray-900">
-                                            Disetujui Oleh
-                                        </h4>
-                                        <div className="flex items-center">
-                                            <User className="mr-2 h-4 w-4 text-gray-500" />
-                                            <span className="text-gray-600">
-                                                {
-                                                    template.review.disetujuiBy
-                                                        .name
-                                                }
-                                            </span>
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div>
-                                    <h4 className="font-medium text-gray-900">
-                                        Tanggal Review
-                                    </h4>
-                                    <p className="text-gray-600">
-                                        {new Date(
-                                            template.review.created_at,
-                                        ).toLocaleDateString('id-ID')}
-                                    </p>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
+                    {canRemoveSignature && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleRemoveSignature}
+                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                            disabled={isRemoving}
+                        >
+                            <Trash2 className="mr-1 h-4 w-4" />
+                            {isRemoving
+                                ? 'Menghapus...'
+                                : 'Hapus Tanda Tangan'}
+                        </Button>
+                    )}
                 </div>
+
+                {/* Template Preview - full width */}
+                <Card>
+                    <CardHeader className="py-3">
+                        <CardTitle className="flex items-center text-sm sm:text-base">
+                            <FileCheck className="mr-2 h-4 w-4" />
+                            {template.signed_template_path
+                                ? 'Template Bertanda Tangan'
+                                : 'Preview Template'}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div
+                            className="rounded-lg border border-gray-300"
+                            style={{ height: '600px' }}
+                        >
+                            <iframe
+                                src={
+                                    template.signed_template_path
+                                        ? `/storage/${template.signed_template_path}`
+                                        : `/templates/${template.id}/preview`
+                                }
+                                className="h-full w-full rounded-lg"
+                                title="Template Preview"
+                            />
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
 
             <ConfirmModal
@@ -389,7 +375,7 @@ export default function TemplatesShow({ template, user }: Props) {
                 onClose={confirmModal.close}
                 onConfirm={confirmRemoveSignature}
                 title="Hapus Tanda Tangan Template"
-                description="Apakah Anda yakin ingin menghapus tanda tangan dari template ini? Template perlu ditandatangani ulang sebelum bisa digunakan untuk membuat sertifikat."
+                description="Tanda tangan fisik dan digital Anda akan dihapus sekaligus dari template ini. Template perlu ditandatangani ulang sebelum bisa digunakan untuk membuat sertifikat."
                 confirmText="Hapus"
                 cancelText="Batal"
                 variant="destructive"

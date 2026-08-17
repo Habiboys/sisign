@@ -23,9 +23,9 @@ interface Certificate {
     template_title: string;
     issued_at: string;
     recipients: Recipient[];
-    verification_status: string;
+    verification_status: 'valid' | 'tampered' | 'file_missing' | 'unknown';
     verified_at: string;
-    verification_hash: string;
+    content_hash: string | null;
 }
 
 interface VerificationProps {
@@ -39,7 +39,8 @@ export default function VerificationCertificate({
     success,
     message,
 }: VerificationProps) {
-    const isVerified = success && certificate !== null;
+    const isTampered = certificate?.verification_status === 'tampered';
+    const isVerified = success && certificate !== null && !isTampered;
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -61,16 +62,27 @@ export default function VerificationCertificate({
                     </div>
 
                     <h1 className="mb-2 text-3xl font-bold text-gray-900">
-                        {isVerified
-                            ? 'Sertifikat Terverifikasi'
-                            : 'Sertifikat Tidak Ditemukan'}
+                        {isTampered
+                            ? 'Sertifikat Telah Diubah'
+                            : isVerified
+                                ? 'Sertifikat Terverifikasi'
+                                : 'Sertifikat Tidak Ditemukan'}
                     </h1>
 
                     <p className="text-lg text-gray-600">
-                        {isVerified
-                            ? 'Sertifikat ini valid dan dapat dipercaya'
-                            : message || 'Sertifikat tidak ditemukan atau tidak valid'}
+                        {message ||
+                            (isVerified
+                                ? 'Sertifikat ini valid dan dapat dipercaya'
+                                : 'Sertifikat tidak ditemukan atau tidak valid')}
                     </p>
+
+                    {isTampered && (
+                        <div className="mx-auto mt-4 max-w-xl rounded-lg border border-red-200 bg-red-50 p-4 text-left text-sm text-red-800">
+                            File PDF sertifikat yang tersimpan di server saat ini
+                            tidak cocok dengan hash yang tercatat saat diterbitkan.
+                            Isi sertifikat kemungkinan telah dimodifikasi.
+                        </div>
+                    )}
                 </div>
 
                 {certificate && (
@@ -119,8 +131,21 @@ export default function VerificationCertificate({
                                         <label className="text-sm font-medium text-gray-500">
                                             Status Verifikasi
                                         </label>
-                                        <p className="text-lg font-semibold text-green-600">
-                                            ✓ Valid
+                                        <p
+                                            className={`text-lg font-semibold ${certificate.verification_status === 'valid'
+                                                ? 'text-green-600'
+                                                : certificate.verification_status === 'tampered'
+                                                    ? 'text-red-600'
+                                                    : 'text-yellow-600'
+                                                }`}
+                                        >
+                                            {certificate.verification_status === 'valid'
+                                                ? '✓ Valid'
+                                                : certificate.verification_status === 'tampered'
+                                                    ? '✗ Telah Diubah'
+                                                    : certificate.verification_status === 'file_missing'
+                                                        ? 'File Tidak Ditemukan'
+                                                        : 'Tidak Diketahui'}
                                         </p>
                                     </div>
                                 </div>
@@ -186,15 +211,6 @@ export default function VerificationCertificate({
                                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                     <div>
                                         <label className="text-sm font-medium text-gray-500">
-                                            Status Verifikasi
-                                        </label>
-                                        <p className="text-lg font-semibold text-green-600">
-                                            ✓ Terverifikasi
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-sm font-medium text-gray-500">
                                             Waktu Verifikasi
                                         </label>
                                         <p className="text-lg font-semibold text-gray-900">
@@ -202,14 +218,16 @@ export default function VerificationCertificate({
                                         </p>
                                     </div>
 
-                                    <div>
-                                        <label className="text-sm font-medium text-gray-500">
-                                            Hash Verifikasi
-                                        </label>
-                                        <p className="font-mono text-xs text-gray-600 break-all">
-                                            {certificate.verification_hash}
-                                        </p>
-                                    </div>
+                                    {certificate.content_hash && (
+                                        <div>
+                                            <label className="text-sm font-medium text-gray-500">
+                                                Hash Integritas (SHA-256)
+                                            </label>
+                                            <p className="font-mono text-xs text-gray-600 break-all">
+                                                {certificate.content_hash}
+                                            </p>
+                                        </div>
+                                    )}
 
                                     <div>
                                         <label className="text-sm font-medium text-gray-500">

@@ -1,0 +1,24 @@
+﻿"{"success":false,"message":"file_get_contents(C:\\Project\\sisign\\storage\\app\/public\/documents\/test.pdf): Failed to open stream: No such file or directory"}" // tests\Feature\MultiSignatureTest.php:84
+
+  [39;41;1m FAIL [39;49;22m[39m Tests\Feature\MultiSignatureTest[39m
+  [31;1mΓ¿»[39;22m[90m [39m[90mbarcode generated only after all signers signed[39m[90m                                                             [39m [90m0.81s[39m  
+  [31mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[39m  
+  [41;1m FAILED [49;22m [1mTests\Feature\MultiSignatureTest[22m [90m>[39m barcode generated only after all signers signed                           
+[39;1m  Expected response status code [>=200, <300] but received 500.
+Failed asserting that false is true.[39;22m
+
+  at [32mtests\Feature\MultiSignatureTest.php[39m:[32m85[39m
+     81Γûò             'position' => ['x' => 10, 'y' => 10, 'width' => 100, 'height' => 50, 'page' => 1]
+     82Γûò         ]);
+     83Γûò 
+     84Γûò         dump($response->getContent());
+  Γ₧£  85Γûò         $response->assertSuccessful();
+     86Γûò         $this->assertTrue($document->signers()->where('user_id', $signer1->id)->first()->is_signed);
+     87Γûò         $this->assertFalse($document->fresh()->isCompleted());
+     88Γûò 
+     89Γûò         // Signer 2 signs
+
+
+  [90mTests:[39m    [31;1m1 failed[39;22m[90m (1 assertions)[39m
+  [90mDuration:[39m [39m1.16s[39m
+

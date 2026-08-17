@@ -10,73 +10,84 @@ use Illuminate\Support\Facades\Log;
 class EncryptionService
 {
     /**
-     * Generate RSA key pair for user
+     * Create a temporary OpenSSL config file (required for Windows compatibility).
+     * Caller is responsible for deleting the returned path.
      */
-    public function generateKeyPair(User $user, ?string $passphrase = null): EncryptionKey
+    private function createTempOpensslConfig(): string
     {
-        Log::info('Starting key generation for user', ['user_id' => $user->id]);
-        
-        // Create temporary OpenSSL config for Windows compatibility
-        $tempConfig = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'openssl_' . uniqid() . '.cnf';
+        $tempConfig = sys_get_temp_dir().DIRECTORY_SEPARATOR.'openssl_'.uniqid().'.cnf';
         $configContent = '[req]
 distinguished_name = req_distinguished_name
 [req_distinguished_name]
 ';
         file_put_contents($tempConfig, $configContent);
-        
+
+        return $tempConfig;
+    }
+
+    /**
+     * Generate RSA key pair for user
+     */
+    public function generateKeyPair(User $user, ?string $passphrase = null): EncryptionKey
+    {
+        Log::info('Starting key generation for user', ['user_id' => $user->id]);
+
+        $tempConfig = $this->createTempOpensslConfig();
+
         // Generate private key with explicit config
         $config = [
-            "digest_alg" => "sha256",
-            "private_key_bits" => 2048,
-            "private_key_type" => OPENSSL_KEYTYPE_RSA,
-            "config" => $tempConfig
+            'digest_alg' => 'sha256',
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+            'config' => $tempConfig,
         ];
 
         // Create the private and public key
         $res = openssl_pkey_new($config);
-        if (!$res) {
+        if (! $res) {
             $error = openssl_error_string() ?: 'Unknown OpenSSL error';
             Log::error('OpenSSL key generation failed', ['error' => $error]);
             @unlink($tempConfig);
-            throw new Exception('Failed to generate private key: ' . $error);
+            throw new Exception('Failed to generate private key: '.$error);
         }
 
         // Extract the private key from $res to $privKey
         if ($passphrase) {
-            $exportSuccess = openssl_pkey_export($res, $privKey, $passphrase, ["config" => $tempConfig]);
+            $exportSuccess = openssl_pkey_export($res, $privKey, $passphrase, ['config' => $tempConfig]);
         } else {
             // No passphrase - generate unencrypted private key
-            $exportSuccess = openssl_pkey_export($res, $privKey, null, ["config" => $tempConfig]);
+            $exportSuccess = openssl_pkey_export($res, $privKey, null, ['config' => $tempConfig]);
         }
-        if (!$exportSuccess) {
+        if (! $exportSuccess) {
             $error = openssl_error_string() ?: 'Unknown export error';
             Log::error('OpenSSL key export failed', ['error' => $error]);
             @unlink($tempConfig);
-            throw new Exception('Failed to export private key: ' . $error);
+            throw new Exception('Failed to export private key: '.$error);
         }
 
         // Extract the public key from $res to $pubKey
         $pubKey = openssl_pkey_get_details($res);
-        if (!$pubKey) {
+        if (! $pubKey) {
             Log::error('Failed to get public key details');
             @unlink($tempConfig);
             throw new Exception('Failed to extract public key');
         }
-        
-        $publicKey = $pubKey["key"];
-        
+
+        $publicKey = $pubKey['key'];
+
         // Clean up temporary config
         @unlink($tempConfig);
 
         // Check if user already has keys
         $existingKey = EncryptionKey::where('userId', $user->id)->first();
-        
+
         if ($existingKey) {
             // Update existing keys
             $existingKey->update([
                 'publicKey' => $publicKey,
                 'privateKey' => $privKey,
             ]);
+
             return $existingKey;
         }
 
@@ -91,7 +102,52 @@ distinguished_name = req_distinguished_name
             'user_id' => $user->id,
             'key_id' => $encryptionKey->id,
             'public_key_length' => strlen($publicKey),
-            'private_key_length' => strlen($privKey)
+            'private_key_length' => strlen($privKey),
+        ]);
+
+        return $encryptionKey;
+    }
+
+    /**
+     * Re-encrypt the user's existing private key with a new passphrase, without
+     * changing the underlying key material. This keeps the public key identical
+     * so previously created digital signatures (verified against the current
+     * EncryptionKey row) remain valid after the user changes their PIN.
+     *
+     * @throws Exception if the user has no existing key pair, or $currentPassphrase
+     *                   does not decrypt the stored private key.
+     */
+    public function rekeyPassphrase(User $user, ?string $currentPassphrase, string $newPassphrase): EncryptionKey
+    {
+        $encryptionKey = EncryptionKey::where('userId', $user->id)->first();
+        if (! $encryptionKey) {
+            throw new Exception('No existing encryption key to rekey. Generate a new key pair instead.');
+        }
+
+        $privateKeyResource = openssl_pkey_get_private($encryptionKey->privateKey, $currentPassphrase);
+        if (! $privateKeyResource) {
+            Log::error('Rekey failed: current passphrase did not decrypt stored private key', [
+                'user_id' => $user->id,
+            ]);
+            throw new Exception('PIN saat ini salah, tidak dapat mengganti PIN.');
+        }
+
+        $tempConfig = $this->createTempOpensslConfig();
+
+        $exportSuccess = openssl_pkey_export($privateKeyResource, $newPrivateKey, $newPassphrase, ['config' => $tempConfig]);
+        @unlink($tempConfig);
+
+        if (! $exportSuccess) {
+            $error = openssl_error_string() ?: 'Unknown export error';
+            Log::error('OpenSSL private key re-export failed', ['error' => $error]);
+            throw new Exception('Failed to re-encrypt private key: '.$error);
+        }
+
+        $encryptionKey->update(['privateKey' => $newPrivateKey]);
+
+        Log::info('Encryption key rekeyed (public key unchanged)', [
+            'user_id' => $user->id,
+            'key_id' => $encryptionKey->id,
         ]);
 
         return $encryptionKey;
@@ -103,6 +159,7 @@ distinguished_name = req_distinguished_name
     public function getPublicKey(User $user): ?string
     {
         $encryptionKey = EncryptionKey::where('userId', $user->id)->first();
+
         return $encryptionKey?->publicKey;
     }
 
@@ -112,6 +169,7 @@ distinguished_name = req_distinguished_name
     public function getPrivateKey(User $user): ?string
     {
         $encryptionKey = EncryptionKey::where('userId', $user->id)->first();
+
         return $encryptionKey?->privateKey;
     }
 
@@ -125,16 +183,16 @@ distinguished_name = req_distinguished_name
         } else {
             $privateKeyResource = openssl_pkey_get_private($privateKey);
         }
-        if (!$privateKeyResource) {
+        if (! $privateKeyResource) {
             // Check if it's likely a passphrase error
             $error = openssl_error_string();
-            Log::error('OpenSSL Private Key Error', ['error' => $error, 'has_passphrase' => !!$passphrase]);
-            
+            Log::error('OpenSSL Private Key Error', ['error' => $error, 'has_passphrase' => (bool) $passphrase]);
+
             throw new Exception('PIN yang Anda masukkan salah.');
         }
 
         openssl_sign($data, $signature, $privateKeyResource, OPENSSL_ALGO_SHA256);
-        
+
         return base64_encode($signature);
     }
 
@@ -144,12 +202,12 @@ distinguished_name = req_distinguished_name
     public function verifySignature(string $data, string $signature, string $publicKey): bool
     {
         $publicKeyResource = openssl_pkey_get_public($publicKey);
-        if (!$publicKeyResource) {
+        if (! $publicKeyResource) {
             throw new Exception('Invalid public key');
         }
 
         $signatureData = base64_decode($signature);
-        
+
         return openssl_verify($data, $signatureData, $publicKeyResource, OPENSSL_ALGO_SHA256) === 1;
     }
 
@@ -159,11 +217,11 @@ distinguished_name = req_distinguished_name
     public function encryptData(string $data, string $publicKey): string
     {
         $publicKeyResource = openssl_pkey_get_public($publicKey);
-        if (!$publicKeyResource) {
+        if (! $publicKeyResource) {
             throw new Exception('Invalid public key');
         }
 
-        if (!openssl_public_encrypt($data, $encrypted, $publicKeyResource)) {
+        if (! openssl_public_encrypt($data, $encrypted, $publicKeyResource)) {
             throw new Exception('Failed to encrypt data');
         }
 
@@ -176,13 +234,13 @@ distinguished_name = req_distinguished_name
     public function decryptData(string $encryptedData, string $privateKey, ?string $passphrase = null): string
     {
         $privateKeyResource = openssl_pkey_get_private($privateKey, $passphrase);
-        if (!$privateKeyResource) {
+        if (! $privateKeyResource) {
             throw new Exception('Invalid private key or passphrase');
         }
 
         $encryptedData = base64_decode($encryptedData);
-        
-        if (!openssl_private_decrypt($encryptedData, $decrypted, $privateKeyResource)) {
+
+        if (! openssl_private_decrypt($encryptedData, $decrypted, $privateKeyResource)) {
             throw new Exception('Failed to decrypt data');
         }
 
@@ -203,8 +261,8 @@ distinguished_name = req_distinguished_name
     public function getKeyInfo(User $user): ?array
     {
         $encryptionKey = EncryptionKey::where('userId', $user->id)->first();
-        
-        if (!$encryptionKey) {
+
+        if (! $encryptionKey) {
             return null;
         }
 
@@ -227,8 +285,8 @@ distinguished_name = req_distinguished_name
     public function exportPublicKey(User $user): ?string
     {
         $publicKey = $this->getPublicKey($user);
-        
-        if (!$publicKey) {
+
+        if (! $publicKey) {
             return null;
         }
 
@@ -241,10 +299,10 @@ distinguished_name = req_distinguished_name
     public function importPublicKey(string $base64PublicKey): string
     {
         $publicKey = base64_decode($base64PublicKey);
-        
+
         // Validate the key
         $publicKeyResource = openssl_pkey_get_public($publicKey);
-        if (!$publicKeyResource) {
+        if (! $publicKeyResource) {
             throw new Exception('Invalid public key format');
         }
 

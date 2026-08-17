@@ -2,29 +2,30 @@
 
 namespace App\Services;
 
+use App\Jobs\GenerateBulkCertificatesJob;
+use App\Models\CertificateRecipient;
 use App\Models\Sertifikat;
 use App\Models\TemplateSertif;
-use App\Models\CertificateRecipient;
 use App\Models\User;
-use App\Models\EncryptionKey;
+use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Writer\PngWriter;
+use Exception;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use setasign\Fpdi\Fpdi;
-use setasign\Fpdi\PdfParser\StreamReader;
 use setasign\Fpdi\Tcpdf\Fpdi as FpdiTcpdf;
-
-use Exception;
 
 class CertificateService
 {
-    protected SignatureService $signatureService;
+    public SignatureService $signatureService;
+
     protected $encryptionService;
 
     public function __construct(SignatureService $signatureService)
     {
         $this->signatureService = $signatureService;
-        $this->encryptionService = app(\App\Services\EncryptionService::class);
+        $this->encryptionService = app(EncryptionService::class);
     }
 
     public function generateBulkCertificates(array $data): array
@@ -33,7 +34,7 @@ class CertificateService
         $recipients = $data['recipients'];
         $signedTemplatePath = $this->getSignedTemplatePath($template);
 
-        if (!$signedTemplatePath) {
+        if (! $signedTemplatePath) {
             throw new Exception('Template belum ditandatangani. Silakan tandatangani template terlebih dahulu.');
         }
 
@@ -44,13 +45,13 @@ class CertificateService
             try {
                 $sertifikat = Sertifikat::create([
                     'templateSertifId' => $template->id,
-                    'nomor_sertif' => $recipient['nomor_sertif']
+                    'nomor_sertif' => $recipient['nomor_sertif'],
                 ]);
 
                 CertificateRecipient::create([
                     'sertifikatId' => $sertifikat->id,
                     'userId' => $recipient['userId'],
-                    'issuedAt' => $recipient['issuedAt'] ?? now()
+                    'issuedAt' => $recipient['issuedAt'] ?? now(),
                 ]);
 
                 $certificatePdf = $this->generateIndividualCertificate(
@@ -59,13 +60,17 @@ class CertificateService
                     $recipient
                 );
 
+                $sertifikat->update([
+                    'content_hash' => $this->signatureService->hashFile($certificatePdf),
+                ]);
+
                 $generatedCertificates[] = [
                     'sertifikat' => $sertifikat,
                     'pdf_path' => $certificatePdf,
-                    'recipient' => $recipient
+                    'recipient' => $recipient,
                 ];
-            } catch (\Exception $e) {
-                $errors[] = "Error pada penerima ke-" . ($index + 1) . ": " . $e->getMessage();
+            } catch (Exception $e) {
+                $errors[] = 'Error pada penerima ke-'.($index + 1).': '.$e->getMessage();
             }
         }
 
@@ -73,7 +78,7 @@ class CertificateService
             'generated' => $generatedCertificates,
             'errors' => $errors,
             'success_count' => count($generatedCertificates),
-            'error_count' => count($errors)
+            'error_count' => count($errors),
         ];
     }
 
@@ -82,7 +87,7 @@ class CertificateService
         Log::info('CertificateService::generateBulkCertificatesFromExcel called', [
             'templateSertifId' => $data['templateSertifId'],
             'excelData_count' => count($data['excelData'] ?? []),
-            'show_qr_code' => $data['show_qr_code'] ?? true
+            'show_qr_code' => $data['show_qr_code'] ?? true,
         ]);
 
         $template = TemplateSertif::findOrFail($data['templateSertifId']);
@@ -92,30 +97,30 @@ class CertificateService
         $showQrCode = $data['show_qr_code'] ?? true; // Default to true
         $userId = Auth::id();
 
-        if (!$signedTemplatePath) {
+        if (! $signedTemplatePath) {
             throw new Exception('Template belum ditandatangani. Silakan tandatangani template terlebih dahulu.');
         }
 
         $jobs = [];
         foreach ($excelData as $index => $row) {
-            $jobs[] = new \App\Jobs\GenerateBulkCertificatesJob($template, $row, $userId, $passphrase, $showQrCode);
+            $jobs[] = new GenerateBulkCertificatesJob($template, $row, $userId, $passphrase, $showQrCode);
         }
 
-        $batch = \Illuminate\Support\Facades\Bus::batch($jobs)
-            ->name('Bulk Certificate Generation - ' . $template->title)
+        $batch = Bus::batch($jobs)
+            ->name('Bulk Certificate Generation - '.$template->title)
             ->allowFailures()
             ->dispatch();
 
         return [
             'batch_id' => $batch->id,
-            'total_jobs' => count($jobs)
+            'total_jobs' => count($jobs),
         ];
     }
 
     public function processSingleExcelRow(TemplateSertif $template, array $row, ?string $passphrase = null, bool $showQrCode = true): void
     {
         $signedTemplatePath = $this->getSignedTemplatePath($template);
-        
+
         // Logic extracted from original loop
         try {
             // Get nomor sertifikat from Excel row berdasarkan urutan variabel
@@ -130,7 +135,7 @@ class CertificateService
             $nomorSertifIndex = null;
             $emailIndex = null;
 
-            if (!empty($variablePositions)) {
+            if (! empty($variablePositions)) {
                 foreach ($variablePositions as $varIndex => $var) {
                     $varName = strtolower($var['name']);
                     if (in_array($varName, ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'])) {
@@ -148,11 +153,11 @@ class CertificateService
             if ($hasNomorSertifInVariables && $nomorSertifIndex !== null) {
                 // Ambil dari variabel
                 $nomorSertif = $row[$nomorSertifIndex] ?? null;
-            } elseif (!$hasNomorSertifInVariables && count($row) > count($variablePositions)) {
+            } elseif (! $hasNomorSertifInVariables && count($row) > count($variablePositions)) {
                 // Ambil dari kolom akhir (jika ditambahkan otomatis)
                 // Nomor sertifikat di kolom sebelum email (jika email juga ditambahkan otomatis)
                 $autoColumnsCount = 0;
-                if (!$hasEmailInVariables) {
+                if (! $hasEmailInVariables) {
                     $autoColumnsCount = 2; // nomor_sertif + email
                 } else {
                     $autoColumnsCount = 1; // hanya nomor_sertif
@@ -165,20 +170,21 @@ class CertificateService
             if ($hasEmailInVariables && $emailIndex !== null) {
                 // Ambil dari variabel
                 $email = $row[$emailIndex] ?? null;
-            } elseif (!$hasEmailInVariables && count($row) > count($variablePositions)) {
+            } elseif (! $hasEmailInVariables && count($row) > count($variablePositions)) {
                 // Ambil dari kolom terakhir (jika ditambahkan otomatis)
                 $emailIndex = count($row) - 1;
                 $email = $row[$emailIndex] ?? null;
             }
 
             // Validasi: Nomor sertifikat WAJIB
-            if (!$nomorSertif || trim($nomorSertif) === '') {
-                throw new Exception("Nomor sertifikat wajib diisi");
+            if (! $nomorSertif || trim($nomorSertif) === '') {
+                throw new Exception('Nomor sertifikat wajib diisi');
             }
 
             // Cek duplikasi nomor sertifikat
-            if (\App\Models\Sertifikat::where('nomor_sertif', $nomorSertif)->exists()) {
+            if (Sertifikat::where('nomor_sertif', $nomorSertif)->exists()) {
                 Log::info('Nomor sertifikat already exists, skipping', ['nomor_sertif' => $nomorSertif]);
+
                 return; // Skip silently or throw exception depending on requirement
             }
 
@@ -186,10 +192,10 @@ class CertificateService
             // Pastikan row Excel sesuai dengan urutan variabel (tidak termasuk nomor_sertif dan email di akhir jika ditambahkan otomatis)
             $excelRowForOverlay = $row;
             $autoColumnsCount = 0;
-            if (!$hasNomorSertifInVariables) {
+            if (! $hasNomorSertifInVariables) {
                 $autoColumnsCount++;
             }
-            if (!$hasEmailInVariables) {
+            if (! $hasEmailInVariables) {
                 $autoColumnsCount++;
             }
 
@@ -199,8 +205,8 @@ class CertificateService
             }
 
             // Validasi: Email WAJIB untuk pengiriman sertifikat (cek sebelum create sertifikat)
-            if (!$email || trim($email) === '') {
-                throw new Exception("Email wajib diisi untuk pengiriman sertifikat");
+            if (! $email || trim($email) === '') {
+                throw new Exception('Email wajib diisi untuk pengiriman sertifikat');
             }
 
             // Create sertifikat dulu untuk mendapatkan ID (untuk QR code)
@@ -209,7 +215,7 @@ class CertificateService
                 'templateSertifId' => $template->id,
                 'nomor_sertif' => $nomorSertif,
                 'email' => $email,
-                'file_path' => null // Akan di-update setelah PDF dibuat
+                'file_path' => null, // Akan di-update setelah PDF dibuat
             ]);
 
             $certificatePdf = $this->generateIndividualCertificateFromExcel(
@@ -223,25 +229,28 @@ class CertificateService
             );
 
             // Pastikan file benar-benar ada sebelum update database
-            if (!file_exists($certificatePdf)) {
+            if (! file_exists($certificatePdf)) {
                 // Hapus sertifikat yang sudah dibuat jika PDF gagal
                 $sertifikat->delete();
-                throw new Exception('File PDF tidak berhasil dibuat: ' . $certificatePdf);
+                throw new Exception('File PDF tidak berhasil dibuat: '.$certificatePdf);
             }
 
-            // Update file_path setelah PDF berhasil dibuat
+            // Update file_path dan content_hash setelah PDF berhasil dibuat
             $relativePath = str_replace(storage_path('app/'), '', $certificatePdf);
-            $sertifikat->update(['file_path' => $relativePath]);
+            $sertifikat->update([
+                'file_path' => $relativePath,
+                'content_hash' => $this->signatureService->hashFile($certificatePdf),
+            ]);
 
             Log::info('Sertifikat created successfully via Job', [
                 'sertifikat_id' => $sertifikat->id,
-                'email' => $email
+                'email' => $email,
             ]);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Error processing Excel row in Job', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
@@ -249,28 +258,28 @@ class CertificateService
 
     public function signTemplate(TemplateSertif $template, User $signer, array $signatureData): string
     {
-        $templatePath = storage_path('app/public/templates/' . $template->files);
+        $templatePath = storage_path('app/public/templates/'.$template->files);
 
-        if (!file_exists($templatePath)) {
+        if (! file_exists($templatePath)) {
             throw new Exception('File template tidak ditemukan');
         }
 
-        $signedPath = storage_path('app/signed_templates/' . $template->id . '.pdf');
+        $signedPath = storage_path('app/signed_templates/'.$template->id.'.pdf');
 
         // Create directory if it doesn't exist
         $signedDir = dirname($signedPath);
-        if (!is_dir($signedDir)) {
+        if (! is_dir($signedDir)) {
             mkdir($signedDir, 0755, true);
         }
 
-        $pdf = new Fpdi();
+        $pdf = new Fpdi;
         $pageCount = $pdf->setSourceFile($templatePath);
 
         for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
             $templateId = $pdf->importPage($pageNo);
             $size = $pdf->getTemplateSize($templateId);
 
-            $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+            $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
             $pdf->useTemplate($templateId);
 
             if ($pageNo === $pageCount) {
@@ -280,7 +289,10 @@ class CertificateService
 
         $pdf->Output($signedPath, 'F');
 
-        $template->update(['signed_template_path' => $signedPath]);
+        $template->update([
+            'signed_template_path' => $signedPath,
+            'content_hash' => $this->signatureService->hashFile($signedPath),
+        ]);
 
         return $signedPath;
     }
@@ -289,16 +301,16 @@ class CertificateService
     {
         $recipient = User::findOrFail($recipientData['userId']);
 
-        $pdf = new Fpdi();
+        $pdf = new Fpdi;
         $pageCount = $pdf->setSourceFile($signedTemplatePath);
 
-        $outputPath = storage_path('app/certificates/' . $sertifikat->id . '.pdf');
+        $outputPath = storage_path('app/certificates/'.$sertifikat->id.'.pdf');
 
         for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
             $templateId = $pdf->importPage($pageNo);
             $size = $pdf->getTemplateSize($templateId);
 
-            $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+            $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
             $pdf->useTemplate($templateId);
 
             $this->addDynamicData($pdf, $sertifikat, $recipient, $size);
@@ -317,7 +329,7 @@ class CertificateService
             'nomor_sertif' => $nomorSertif,
             'excelRow' => $excelRow,
             'has_passphrase' => $passphrase ? 'YES' : 'NO',
-            'show_qr_code' => $showQrCode
+            'show_qr_code' => $showQrCode,
         ]);
 
         // Copy template PDF yang sudah ditandatangani dan tambahkan data dynamic
@@ -327,7 +339,7 @@ class CertificateService
             Log::info('Loading signed template PDF with FPDI-TCPDF for bulk generation (supports Object Streams)');
 
             // Gunakan FPDI-TCPDF yang bisa handle Object Streams
-            $pdf = new FpdiTcpdf();
+            $pdf = new FpdiTcpdf;
             $pdf->setPrintHeader(false);
             $pdf->setPrintFooter(false);
             // Nonaktifkan auto page break untuk mencegah text membuat halaman baru
@@ -337,12 +349,12 @@ class CertificateService
             Log::info('PDF template loaded with FPDI-TCPDF', ['pageCount' => $pageCount]);
 
             // Generate unique filename (gunakan nomor sertifikat jika ada, atau timestamp)
-            $filename = 'certificate_' . ($nomorSertif ?? 'auto_' . time()) . '_' . time() . '.pdf';
-            $outputPath = storage_path('app/certificates/' . $filename);
+            $filename = 'certificate_'.($nomorSertif ?? 'auto_'.time()).'_'.time().'.pdf';
+            $outputPath = storage_path('app/certificates/'.$filename);
 
             // Pastikan directory exists
             $certDir = dirname($outputPath);
-            if (!is_dir($certDir)) {
+            if (! is_dir($certDir)) {
                 mkdir($certDir, 0755, true);
             }
 
@@ -351,7 +363,7 @@ class CertificateService
                 $templateId = $pdf->importPage($pageNo);
                 $size = $pdf->getTemplateSize($templateId);
 
-                $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+                $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
                 $pdf->useTemplate($templateId);
 
                 // Tambahkan data dynamic dan QR code unik pada halaman terakhir
@@ -366,33 +378,33 @@ class CertificateService
             Log::info('Certificate PDF generated successfully', [
                 'outputPath' => $outputPath,
                 'file_exists' => file_exists($outputPath),
-                'file_size' => file_exists($outputPath) ? filesize($outputPath) : 0
+                'file_size' => file_exists($outputPath) ? filesize($outputPath) : 0,
             ]);
 
-            if (!file_exists($outputPath)) {
-                throw new Exception('File PDF tidak berhasil dibuat: ' . $outputPath);
+            if (! file_exists($outputPath)) {
+                throw new Exception('File PDF tidak berhasil dibuat: '.$outputPath);
             }
 
             return $outputPath;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('FPDI-TCPDF failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'signedTemplatePath' => $signedTemplatePath,
-                'file_exists' => file_exists($signedTemplatePath)
+                'file_exists' => file_exists($signedTemplatePath),
             ]);
 
             // Jika error karena kompresi, coba convert dengan Ghostscript dulu
             if (strpos($e->getMessage(), 'compression') !== false || strpos($e->getMessage(), 'Object Streams') !== false) {
                 Log::info('PDF uses Object Streams, attempting to convert with Ghostscript', [
-                    'path' => $signedTemplatePath
+                    'path' => $signedTemplatePath,
                 ]);
 
                 $convertedPath = $this->convertPDFWithGhostscript($signedTemplatePath);
                 if ($convertedPath && file_exists($convertedPath)) {
                     // Retry dengan PDF yang sudah di-convert
                     try {
-                        $pdf = new FpdiTcpdf();
+                        $pdf = new FpdiTcpdf;
                         $pdf->setPrintHeader(false);
                         $pdf->setPrintFooter(false);
                         // Nonaktifkan auto page break untuk mencegah text membuat halaman baru
@@ -402,11 +414,11 @@ class CertificateService
                         Log::info('PDF converted and loaded successfully', ['pageCount' => $pageCount]);
 
                         // Generate unique filename
-                        $filename = 'certificate_' . ($nomorSertif ?? 'auto_' . time()) . '_' . time() . '.pdf';
-                        $outputPath = storage_path('app/certificates/' . $filename);
+                        $filename = 'certificate_'.($nomorSertif ?? 'auto_'.time()).'_'.time().'.pdf';
+                        $outputPath = storage_path('app/certificates/'.$filename);
 
                         $certDir = dirname($outputPath);
-                        if (!is_dir($certDir)) {
+                        if (! is_dir($certDir)) {
                             mkdir($certDir, 0755, true);
                         }
 
@@ -415,7 +427,7 @@ class CertificateService
                             $templateId = $pdf->importPage($pageNo);
                             $size = $pdf->getTemplateSize($templateId);
 
-                            $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+                            $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
                             $pdf->useTemplate($templateId);
 
                             if ($pageNo === $pageCount) {
@@ -431,7 +443,7 @@ class CertificateService
                         }
 
                         return $outputPath;
-                    } catch (\Exception $retryError) {
+                    } catch (Exception $retryError) {
                         Log::error('Failed to use converted PDF', ['error' => $retryError->getMessage()]);
                     }
                 }
@@ -444,12 +456,12 @@ class CertificateService
                 $errorMessage .= "   - Linux: sudo apt-get install ghostscript\n";
                 $errorMessage .= "   - Mac: brew install ghostscript\n\n";
                 $errorMessage .= "2. Setelah install, restart server dan coba bulk generation lagi.\n\n";
-                $errorMessage .= "ATAU convert PDF template secara manual sebelum upload.";
+                $errorMessage .= 'ATAU convert PDF template secara manual sebelum upload.';
 
                 throw new Exception($errorMessage);
             }
 
-            throw new Exception('Gagal load template PDF yang sudah ditandatangani: ' . $e->getMessage());
+            throw new Exception('Gagal load template PDF yang sudah ditandatangani: '.$e->getMessage());
         }
     }
 
@@ -462,20 +474,21 @@ class CertificateService
 
         // Cek apakah Ghostscript tersedia
         $gsCommand = $this->findGhostscriptCommand();
-        if (!$gsCommand) {
+        if (! $gsCommand) {
             Log::warning('Ghostscript not found, cannot convert PDF');
+
             return null;
         }
 
         // Convert PDF menggunakan Ghostscript
-        $convertedPath = storage_path('app/temp/converted_' . uniqid() . '_' . basename($pdfPath));
+        $convertedPath = storage_path('app/temp/converted_'.uniqid().'_'.basename($pdfPath));
         $convertedDir = dirname($convertedPath);
-        if (!is_dir($convertedDir)) {
+        if (! is_dir($convertedDir)) {
             mkdir($convertedDir, 0755, true);
         }
 
         // Ghostscript command untuk convert PDF ke PDF 1.4 (tanpa object streams)
-        $command = escapeshellarg($gsCommand) . ' -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/prepress -dUseObjectStreams=false -dUseFlateCompression=true -dCompressFonts=false -dSubsetFonts=false -sOutputFile=' . escapeshellarg($convertedPath) . ' ' . escapeshellarg($pdfPath) . ' 2>&1';
+        $command = escapeshellarg($gsCommand).' -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/prepress -dUseObjectStreams=false -dUseFlateCompression=true -dCompressFonts=false -dSubsetFonts=false -sOutputFile='.escapeshellarg($convertedPath).' '.escapeshellarg($pdfPath).' 2>&1';
 
         exec($command, $output, $returnCode);
 
@@ -484,15 +497,17 @@ class CertificateService
                 'original' => $pdfPath,
                 'converted' => $convertedPath,
                 'original_size' => filesize($pdfPath),
-                'converted_size' => filesize($convertedPath)
+                'converted_size' => filesize($convertedPath),
             ]);
+
             return $convertedPath;
         } else {
             Log::error('PDF conversion failed', [
                 'command' => $command,
                 'output' => implode("\n", $output),
-                'returnCode' => $returnCode
+                'returnCode' => $returnCode,
             ]);
+
             return null;
         }
     }
@@ -507,7 +522,7 @@ class CertificateService
         foreach ($commands as $cmd) {
             $output = [];
             $returnCode = 0;
-            exec(escapeshellarg($cmd) . ' --version 2>&1', $output, $returnCode);
+            exec(escapeshellarg($cmd).' --version 2>&1', $output, $returnCode);
 
             if ($returnCode === 0) {
                 return $cmd;
@@ -523,7 +538,7 @@ class CertificateService
             'pageSize' => $pageSize,
             'variable_positions_count' => count($template->variable_positions ?? []),
             'excel_row_count' => count($excelRow),
-            'show_qr_code' => $showQrCode // Log QR code toggle
+            'show_qr_code' => $showQrCode, // Log QR code toggle
         ]);
 
         $variablePositions = $template->variable_positions ?? [];
@@ -552,7 +567,7 @@ class CertificateService
                     'varIndex' => $varIndex,
                     'varName' => $varName,
                     'excelValue' => $value,
-                    'excelRow' => $excelRow
+                    'excelRow' => $excelRow,
                 ]);
 
                 // Handle special variables - override dengan nilai khusus jika diperlukan
@@ -564,7 +579,7 @@ class CertificateService
                     if (isset($excelRow[$varIndex]) && $excelRow[$varIndex] && trim($excelRow[$varIndex]) !== '') {
                         try {
                             $value = date('d/m/Y', strtotime($excelRow[$varIndex]));
-                        } catch (\Exception $e) {
+                        } catch (Exception $e) {
                             $value = $excelRow[$varIndex]; // Use as is if date parsing fails
                         }
                     } else {
@@ -582,29 +597,29 @@ class CertificateService
                         // Origin is Top-Left (standard for FPDF/TCPDF)
                         $pdfX = $variable['x_pct'] * $pageSize['width'];
                         $pdfY = $variable['y_pct'] * $pageSize['height'];
-                        
+
                         Log::info('Using percentage coordinates', [
                             'varName' => $varName,
                             'x_pct' => $variable['x_pct'],
                             'y_pct' => $variable['y_pct'],
                             'pdfX_raw' => $pdfX,
                             'pdfY_raw' => $pdfY,
-                            'pageSize' => $pageSize
+                            'pageSize' => $pageSize,
                         ]);
 
                         // FIX: Adjust coordinates for A4 Vertical/Portrait
                         // User report: "hasilnya agak melenceng ke bawah dan geser ke kanan"
                         // Correction: Shift Up (decrease Y) and Left (decrease X)
                         if ($pageSize['width'] < $pageSize['height']) {
-                           // Asumsi ini A4 Portrait
-                           // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
-                           $pdfX -= 4; // Geser kiri 4pt
-                           $pdfY -= 4; // Geser atas 4pt
-                           
-                           Log::info('Applied A4 Portrait correction (final)', [
-                               'new_pdfX' => $pdfX,
-                               'new_pdfY' => $pdfY
-                           ]);
+                            // Asumsi ini A4 Portrait
+                            // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
+                            $pdfX -= 4; // Geser kiri 4pt
+                            $pdfY -= 4; // Geser atas 4pt
+
+                            Log::info('Applied A4 Portrait correction (final)', [
+                                'new_pdfX' => $pdfX,
+                                'new_pdfY' => $pdfY,
+                            ]);
                         }
                     } else {
                         // Fallback to old method (legacy support)
@@ -612,27 +627,27 @@ class CertificateService
                         // PDF viewer dimensions in the web interface
                         $webViewerWidth = 800;
                         $webViewerHeight = 750;
-    
+
                         // Account for PDF viewer toolbar and padding offset
                         $toolbarOffset = 120;
                         $actualWebHeight = $webViewerHeight - $toolbarOffset;
-    
+
                         // Calculate scaling factors
                         $scaleX = $pageSize['width'] / $webViewerWidth;
                         $scaleY = $pageSize['height'] / $actualWebHeight;
-    
+
                         // Convert web coordinates to PDF coordinates
                         $pdfX = $x * $scaleX;
                         $scaledY = ($y - $toolbarOffset) * $scaleY;
-                        
+
                         // Old logic inverted Y, which might have been the cause of the issue.
                         // We'll keep it for legacy compatibility but it might be incorrect.
                         $pdfY = $pageSize['height'] - $scaledY;
-                        
+
                         Log::info('Using legacy coordinates', [
                             'varName' => $varName,
                             'pdfX' => $pdfX,
-                            'pdfY' => $pdfY
+                            'pdfY' => $pdfY,
                         ]);
                     }
 
@@ -684,11 +699,11 @@ class CertificateService
         $pdf->Cell($pdf->GetStringWidth($namaPenerima) + 10, 8, $namaPenerima, 0, 0, 'C');
 
         $this->setFontForPDF($pdf, 'Arial', '', 10);
-        $pdf->SetXY($centerX - ($pdf->GetStringWidth('Nomor: ' . $nomorSertif) / 2), 150);
-        $pdf->Cell($pdf->GetStringWidth('Nomor: ' . $nomorSertif) + 10, 8, 'Nomor: ' . $nomorSertif, 0, 0, 'C');
+        $pdf->SetXY($centerX - ($pdf->GetStringWidth('Nomor: '.$nomorSertif) / 2), 150);
+        $pdf->Cell($pdf->GetStringWidth('Nomor: '.$nomorSertif) + 10, 8, 'Nomor: '.$nomorSertif, 0, 0, 'C');
 
-        $pdf->SetXY($centerX - ($pdf->GetStringWidth('Tanggal: ' . $tanggalTerbit) / 2), 160);
-        $pdf->Cell($pdf->GetStringWidth('Tanggal: ' . $tanggalTerbit) + 10, 8, 'Tanggal: ' . $tanggalTerbit, 0, 0, 'C');
+        $pdf->SetXY($centerX - ($pdf->GetStringWidth('Tanggal: '.$tanggalTerbit) / 2), 160);
+        $pdf->Cell($pdf->GetStringWidth('Tanggal: '.$tanggalTerbit) + 10, 8, 'Tanggal: '.$tanggalTerbit, 0, 0, 'C');
     }
 
     private function mapFontFamilyToFPDF(string $fontFamily): string
@@ -781,10 +796,10 @@ class CertificateService
 
         $signatureY = $pageSize['height'] - 15;
         $pdf->SetXY(50, $signatureY);
-        $pdf->Cell(100, 5, 'Template ditandatangani digital oleh: ' . $signer->name, 0, 1, 'L');
+        $pdf->Cell(100, 5, 'Template ditandatangani digital oleh: '.$signer->name, 0, 1, 'L');
 
         $pdf->SetXY(50, $signatureY + 5);
-        $pdf->Cell(100, 5, 'Tanggal: ' . now()->format('d/m/Y H:i:s'), 0, 1, 'L');
+        $pdf->Cell(100, 5, 'Tanggal: '.now()->format('d/m/Y H:i:s'), 0, 1, 'L');
     }
 
     private function addDynamicData($pdf, Sertifikat $sertifikat, User $recipient, array $pageSize): void
@@ -812,7 +827,7 @@ class CertificateService
         Log::info('Adding dynamic data from Excel', [
             'template_id' => $template->id,
             'user_id' => $user->id,
-            'excelRow' => $excelRow
+            'excelRow' => $excelRow,
         ]);
 
         // Prepare data for replacement
@@ -850,7 +865,7 @@ class CertificateService
     {
         Log::info('Replacing placeholders in PDF', [
             'pageSize' => $pageSize,
-            'placeholders_count' => count($placeholders)
+            'placeholders_count' => count($placeholders),
         ]);
 
         // Define smart positioning based on page size
@@ -883,7 +898,7 @@ class CertificateService
                     'replacement' => $replacement,
                     'position' => $pos,
                     'calculated_x' => $xPos,
-                    'text_width' => $textWidth
+                    'text_width' => $textWidth,
                 ]);
             }
         }
@@ -901,32 +916,32 @@ class CertificateService
                 'x' => $width / 2,
                 'y' => $height * 0.35,
                 'size' => min(16, $width / 40),
-                'align' => 'C'
+                'align' => 'C',
             ],
             '{{NOMOR_SERTIF}}' => [
                 'x' => $width / 2,
                 'y' => $height * 0.55,
                 'size' => min(12, $width / 50),
-                'align' => 'C'
+                'align' => 'C',
             ],
             '{{TANGGAL_TERBIT}}' => [
                 'x' => $width / 2,
                 'y' => $height * 0.65,
                 'size' => min(10, $width / 60),
-                'align' => 'C'
+                'align' => 'C',
             ],
             // Email tidak ditampilkan di sertifikat, hanya untuk pengiriman
             '{{JABATAN}}' => [
                 'x' => $width / 2,
                 'y' => $height * 0.45,
                 'size' => min(11, $width / 55),
-                'align' => 'C'
+                'align' => 'C',
             ],
             '{{DEPARTEMEN}}' => [
                 'x' => $width / 2,
                 'y' => $height * 0.5,
                 'size' => min(10, $width / 60),
-                'align' => 'C'
+                'align' => 'C',
             ],
         ];
     }
@@ -965,38 +980,18 @@ class CertificateService
     {
         try {
             // Generate unique certificate number if not provided
-            if (!$nomorSertif || trim($nomorSertif) === '') {
-                $nomorSertif = 'CERT-' . $template->id . '-' . time() . '-' . uniqid();
+            if (! $nomorSertif || trim($nomorSertif) === '') {
+                $nomorSertif = 'CERT-'.$template->id.'-'.time().'-'.uniqid();
                 Log::info('Generated auto certificate number', ['nomor_sertif' => $nomorSertif]);
             }
 
             // Generate verification URL untuk QR code
-            // QR code langsung berisi URL verifikasi, bukan JSON
-            $verificationUrl = url('/verify-certificate/' . $nomorSertif);
+            // QR code langsung berisi URL verifikasi (nomor_sertif); hash aktual dihitung
+            // dari byte PDF final dan disimpan di kolom content_hash setelah PDF di-Output(),
+            // lalu dibandingkan ulang saat verifikasi (lihat verifyCertificate) — tidak bisa
+            // di-embed di dalam QR karena QR sendiri adalah bagian dari byte PDF yang di-hash.
+            $verificationUrl = url('/verify-certificate/'.$nomorSertif);
             $qrData = $verificationUrl;
-
-            // Data verifikasi tetap disimpan untuk keperluan lain (jika diperlukan)
-            $verificationData = [
-                'certificate_number' => $nomorSertif,
-                'template_id' => $template->id,
-                'issued_at' => now()->toISOString(),
-                'verification_url' => $verificationUrl,
-                'hash' => hash('sha256', $nomorSertif . $template->id . now()->toISOString())
-            ];
-
-            // Add digital signature if passphrase provided (untuk keperluan lain, bukan QR code)
-            if ($passphrase) {
-                try {
-                    $encryptionKey = EncryptionKey::where('userId', Auth::id())->first();
-                    if ($encryptionKey) {
-                        $dataToSign = json_encode($verificationData);
-                        $digitalSignature = $this->encryptionService->signData($dataToSign, $encryptionKey->privateKey, $passphrase);
-                        $verificationData['digital_signature'] = $digitalSignature;
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('Failed to create digital signature', ['error' => $e->getMessage()]);
-                }
-            }
 
             // Only generate QR code if showQrCode is true
             if ($showQrCode) {
@@ -1010,9 +1005,9 @@ class CertificateService
 
                 // FIX: Adjust coordinates for A4 Vertical/Portrait
                 if ($pageSize['width'] < $pageSize['height']) {
-                   // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
-                   $qrX -= 4;
-                   $qrY -= 4;
+                    // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
+                    $qrX -= 4;
+                    $qrY -= 4;
                 }
 
                 // Add QR code to PDF
@@ -1027,17 +1022,17 @@ class CertificateService
                 Log::info('Added unique digital signature QR code', [
                     'certificate_number' => $nomorSertif,
                     'qr_data' => $qrData,
-                    'qr_position' => ['x' => $qrX, 'y' => $qrY, 'size' => $qrSize]
+                    'qr_position' => ['x' => $qrX, 'y' => $qrY, 'size' => $qrSize],
                 ]);
             } else {
                 Log::info('QR code generation skipped (showQrCode = false)', [
-                    'certificate_number' => $nomorSertif
+                    'certificate_number' => $nomorSertif,
                 ]);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Failed to add digital signature QR code', [
                 'certificate_number' => $nomorSertif,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -1047,7 +1042,7 @@ class CertificateService
         try {
             // Generate verification URL untuk QR code
             // QR code langsung berisi URL verifikasi, bukan JSON
-            $verificationUrl = url('/verify-certificate/' . $nomorSertif);
+            $verificationUrl = url('/verify-certificate/'.$nomorSertif);
             $qrData = $verificationUrl;
 
             // Only generate QR code if showQrCode is true
@@ -1062,9 +1057,9 @@ class CertificateService
 
                 // FIX: Adjust coordinates for A4 Vertical/Portrait
                 if ($pageSize['width'] < $pageSize['height']) {
-                   // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
-                   $qrX -= 4;
-                   $qrY -= 4;
+                    // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
+                    $qrX -= 4;
+                    $qrY -= 4;
                 }
 
                 // Add QR code to PDF
@@ -1080,19 +1075,19 @@ class CertificateService
                     'certificate_number' => $nomorSertif,
                     'template_id' => $template->id,
                     'qr_data' => $qrData,
-                    'qr_position' => ['x' => $qrX, 'y' => $qrY, 'size' => $qrSize]
+                    'qr_position' => ['x' => $qrX, 'y' => $qrY, 'size' => $qrSize],
                 ]);
             } else {
                 Log::info('QR code generation skipped (showQrCode = false)', [
                     'certificate_number' => $nomorSertif,
-                    'template_id' => $template->id
+                    'template_id' => $template->id,
                 ]);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Failed to add digital signature QR code', [
                 'certificate_number' => $nomorSertif,
                 'template_id' => $template->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -1101,8 +1096,8 @@ class CertificateService
     {
         try {
             // Generate QR code using endroid/qr-code v6 API
-            $builder = new \Endroid\QrCode\Builder\Builder(
-                writer: new \Endroid\QrCode\Writer\PngWriter(),
+            $builder = new Builder(
+                writer: new PngWriter,
                 data: $data,
                 size: 300,
                 margin: 10
@@ -1111,20 +1106,20 @@ class CertificateService
             $result = $builder->build();
 
             // Save QR code to temporary file
-            $tempPath = storage_path('app/temp_qr_' . uniqid() . '.png');
+            $tempPath = storage_path('app/temp_qr_'.uniqid().'.png');
             file_put_contents($tempPath, $result->getString());
 
             Log::info('QR code generated successfully', [
                 'temp_path' => $tempPath,
-                'data_length' => strlen($data)
+                'data_length' => strlen($data),
             ]);
 
             return $tempPath;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Failed to generate QR code', [
                 'data' => $data,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             // Return empty string if QR generation fails
@@ -1142,14 +1137,14 @@ class CertificateService
                 return;
             }
 
-            $tempPath = storage_path('app/temp_signature_' . uniqid() . '.png');
+            $tempPath = storage_path('app/temp_signature_'.uniqid().'.png');
             file_put_contents($tempPath, $imageData);
 
             if (file_exists($tempPath)) {
                 $pdf->Image($tempPath, $x, $y, $width, $height, 'PNG');
                 unlink($tempPath);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // Ignore signature image errors
         }
     }
@@ -1163,25 +1158,27 @@ class CertificateService
 
         if ($template->signed_template_path) {
             // Try dengan storage_path untuk path relatif dari database
-            $fullPath = storage_path('app/public/' . $template->signed_template_path);
+            $fullPath = storage_path('app/public/'.$template->signed_template_path);
             if (file_exists($fullPath)) {
                 Log::info('Using signed_template_path from database with storage_path', ['path' => $fullPath]);
+
                 return $fullPath;
             }
 
             // Try path absolut
             if (file_exists($template->signed_template_path)) {
                 Log::info('Using absolute signed_template_path from database');
+
                 return $template->signed_template_path;
             }
         }
 
-        $defaultPath = storage_path('app/signed_templates/' . $template->id . '.pdf');
+        $defaultPath = storage_path('app/signed_templates/'.$template->id.'.pdf');
         $defaultExists = file_exists($defaultPath);
 
         Log::info('Checking default path', [
             'default_path' => $defaultPath,
-            'default_exists' => $defaultExists
+            'default_exists' => $defaultExists,
         ]);
 
         return $defaultExists ? $defaultPath : null;
@@ -1196,27 +1193,27 @@ class CertificateService
     {
         // Gunakan file_path dari database jika ada
         if ($sertifikat->file_path) {
-            $certificatePath = storage_path('app/' . $sertifikat->file_path);
+            $certificatePath = storage_path('app/'.$sertifikat->file_path);
             if (file_exists($certificatePath)) {
                 return $certificatePath;
             }
         }
 
         // Fallback ke path lama (untuk backward compatibility)
-        $certificatePath = storage_path('app/certificates/' . $sertifikat->id . '.pdf');
+        $certificatePath = storage_path('app/certificates/'.$sertifikat->id.'.pdf');
         if (file_exists($certificatePath)) {
             return $certificatePath;
         }
 
-        throw new Exception('File sertifikat tidak ditemukan. Path: ' . ($sertifikat->file_path ?? 'N/A'));
+        throw new Exception('File sertifikat tidak ditemukan. Path: '.($sertifikat->file_path ?? 'N/A'));
     }
 
     public function downloadBulkCertificates(array $sertifikatIds): string
     {
-        $zipPath = storage_path('app/certificates_bulk_' . time() . '.zip');
-        $zip = new \ZipArchive();
+        $zipPath = storage_path('app/certificates_bulk_'.time().'.zip');
+        $zip = new \ZipArchive;
 
-        if ($zip->open($zipPath, \ZipArchive::CREATE) !== TRUE) {
+        if ($zip->open($zipPath, \ZipArchive::CREATE) !== true) {
             throw new Exception('Tidak dapat membuat file ZIP');
         }
 
@@ -1224,7 +1221,7 @@ class CertificateService
             $sertifikat = Sertifikat::findOrFail($sertifikatId);
             $certificatePath = $this->downloadCertificate($sertifikat);
 
-            $filename = 'Sertifikat_' . $sertifikat->nomor_sertif . '.pdf';
+            $filename = 'Sertifikat_'.$sertifikat->nomor_sertif.'.pdf';
             $zip->addFile($certificatePath, $filename);
         }
 

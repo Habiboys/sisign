@@ -51,7 +51,7 @@ interface Props {
 }
 
 export default function CertificatesBulkCreate({ templates, user }: Props) {
-    const { success, error, info } = useToast();
+    const { error, info } = useToast();
 
     const { data, setData, post, processing, errors } = useForm({
         templateSertifId: '',
@@ -88,12 +88,10 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
         
         info('Sedang memproses sertifikat...');
         
-        // Inertia post with file upload
+        // Inertia post with file upload. Backend flashes a success message,
+        // shown automatically by the app layout - don't show a second toast here.
         post(routes.certificates.generateFromExcel(), {
             forceFormData: true,
-            onSuccess: () => {
-                success('Sertifikat berhasil digenerate!');
-            },
             onError: (errors) => {
                 const errorMessage = Object.values(errors).flat().join(', ');
                 error('Terjadi kesalahan: ' + errorMessage);

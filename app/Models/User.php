@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,8 +15,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, TwoFactorAuthenticatable, SoftDeletes, HasUuids;
+    /** @use HasFactory<UserFactory> */
+    use HasFactory, HasUuids, Notifiable, SoftDeletes, TwoFactorAuthenticatable;
 
     /**
      * The attributes that are mass assignable.
@@ -29,9 +31,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'pin',
         'signature_image',
     ];
-    protected $keyType = 'string';   // penting!
-    public $incrementing = false;    // matikan auto increment
 
+    protected $keyType = 'string';   // penting!
+
+    public $incrementing = false;    // matikan auto increment
 
     /**
      * The attributes that should be hidden for serialization.
@@ -45,6 +48,13 @@ class User extends Authenticatable implements MustVerifyEmail
     ];
 
     /**
+     * @var list<string>
+     */
+    protected $appends = [
+        'has_pin',
+    ];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -55,6 +65,18 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /**
+     * Whether a signature PIN has been set, without exposing the hash itself
+     * (frontend needs this to decide whether to ask for the current PIN
+     * before allowing a PIN change).
+     */
+    protected function hasPin(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => ! empty($this->pin),
+        );
     }
 
     public function isAdmin(): bool

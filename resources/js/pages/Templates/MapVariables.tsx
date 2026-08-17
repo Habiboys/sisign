@@ -47,7 +47,7 @@ interface Props {
 }
 
 export default function TemplatesMapVariables({ template, user }: Props) {
-    const { success, error } = useToast();
+    const { error } = useToast();
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
     const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
     const [currentPage, setCurrentPage] = useState(1);
@@ -59,6 +59,14 @@ export default function TemplatesMapVariables({ template, user }: Props) {
     const [selectedVariable, setSelectedVariable] = useState<number | null>(null);
     const [isAddingVariable, setIsAddingVariable] = useState(false);
     const [newVariableName, setNewVariableName] = useState('');
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStateRef = useRef<{
+        index: number;
+        moved: boolean;
+        startX: number;
+        startY: number;
+    } | null>(null);
+    const justDraggedRef = useRef(false);
 
     const { data, setData, post, processing, transform } = useForm({
         variable_positions: variables,
@@ -165,10 +173,10 @@ export default function TemplatesMapVariables({ template, user }: Props) {
         loadPDF();
     }, [loadPDF]);
 
-    const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-        const canvas = overlayCanvasRef.current;
-        if (!canvas) return;
-
+    const getCanvasCoords = (
+        e: { clientX: number; clientY: number },
+        canvas: HTMLCanvasElement,
+    ) => {
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
@@ -176,9 +184,42 @@ export default function TemplatesMapVariables({ template, user }: Props) {
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
 
-        // Calculate percentages
-        const x_pct = x / canvas.width;
-        const y_pct = y / canvas.height;
+        return { x, y, x_pct: x / canvas.width, y_pct: y / canvas.height };
+    };
+
+    const findVariableAtPosition = (
+        x: number,
+        y: number,
+        canvas: HTMLCanvasElement,
+    ): number | null => {
+        const hitRadius = 14; // slightly bigger than the drawn marker for easier grabbing
+        for (let i = variables.length - 1; i >= 0; i--) {
+            const variable = variables[i];
+            let vx = variable.x;
+            let vy = variable.y;
+            if (variable.x_pct !== undefined && variable.y_pct !== undefined) {
+                vx = variable.x_pct * canvas.width;
+                vy = variable.y_pct * canvas.height;
+            }
+            const distance = Math.hypot(x - vx, y - vy);
+            if (distance <= hitRadius) {
+                return i;
+            }
+        }
+        return null;
+    };
+
+    const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        const canvas = overlayCanvasRef.current;
+        if (!canvas) return;
+
+        // Ignore the click that fires right after a drag ends.
+        if (justDraggedRef.current) {
+            justDraggedRef.current = false;
+            return;
+        }
+
+        const { x, y, x_pct, y_pct } = getCanvasCoords(e, canvas);
 
         if (isAddingVariable && newVariableName.trim()) {
             // Add new variable at clicked position
@@ -195,19 +236,74 @@ export default function TemplatesMapVariables({ template, user }: Props) {
             setVariables([...variables, newVariable]);
             setNewVariableName('');
             setIsAddingVariable(false);
-        } else if (selectedVariable !== null) {
-            // Update selected variable position
-            const updated = [...variables];
-            updated[selectedVariable] = {
-                ...updated[selectedVariable],
-                x: x,
-                y: y,
-                x_pct: x_pct,
-                y_pct: y_pct,
-            };
-            setVariables(updated);
-            setSelectedVariable(null);
+            setSelectedVariable(variables.length);
         }
+    };
+
+    const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = overlayCanvasRef.current;
+        if (!canvas || isAddingVariable) return;
+
+        const { x, y } = getCanvasCoords(e, canvas);
+        const hitIndex = findVariableAtPosition(x, y, canvas);
+
+        if (hitIndex === null) return;
+
+        canvas.setPointerCapture(e.pointerId);
+        dragStateRef.current = {
+            index: hitIndex,
+            moved: false,
+            startX: x,
+            startY: y,
+        };
+        setIsDragging(true);
+        setSelectedVariable(hitIndex);
+    };
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = overlayCanvasRef.current;
+        const dragState = dragStateRef.current;
+        if (!canvas || !dragState) return;
+
+        const { x, y, x_pct, y_pct } = getCanvasCoords(e, canvas);
+
+        // Only start visually dragging once the pointer has moved a couple
+        // pixels, so a plain click doesn't get treated as a (no-op) drag.
+        if (
+            !dragState.moved &&
+            Math.hypot(x - dragState.startX, y - dragState.startY) < 3
+        ) {
+            return;
+        }
+        dragState.moved = true;
+
+        setVariables((prev) => {
+            const updated = [...prev];
+            updated[dragState.index] = {
+                ...updated[dragState.index],
+                x,
+                y,
+                x_pct,
+                y_pct,
+            };
+            return updated;
+        });
+    };
+
+    const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = overlayCanvasRef.current;
+        const dragState = dragStateRef.current;
+        if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+            canvas.releasePointerCapture(e.pointerId);
+        }
+
+        if (dragState?.moved) {
+            // Suppress the synthetic click that follows this pointer up.
+            justDraggedRef.current = true;
+        }
+
+        dragStateRef.current = null;
+        setIsDragging(false);
     };
 
     const addStandardVariable = (name: string) => {
@@ -256,7 +352,8 @@ export default function TemplatesMapVariables({ template, user }: Props) {
             preserveState: true,
             preserveScroll: true,
             onSuccess: () => {
-                success('Posisi variabel berhasil disimpan');
+                // Backend flashes a success message, shown automatically by
+                // the app layout - don't show a second toast here.
                 // Auto download template Excel setelah save
                 setTimeout(() => {
                     window.open(
@@ -297,7 +394,8 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                             Mapping Variabel Template
                         </h1>
                         <p className="text-gray-600">
-                            Klik pada PDF untuk menambahkan atau mengubah posisi variabel
+                            Tambahkan variabel lalu seret (drag) langsung di
+                            PDF untuk mengatur posisinya
                         </p>
                     </div>
                     <div className="flex gap-2">
@@ -366,17 +464,24 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                             <canvas
                                                 ref={overlayCanvasRef}
                                                 onClick={handleCanvasClick}
-                                                className="cursor-crosshair absolute top-0 left-0"
-                                                style={{ maxWidth: '100%', height: 'auto' }}
+                                                onPointerDown={handlePointerDown}
+                                                onPointerMove={handlePointerMove}
+                                                onPointerUp={handlePointerUp}
+                                                className={`absolute top-0 left-0 ${
+                                                    isAddingVariable
+                                                        ? 'cursor-crosshair'
+                                                        : isDragging
+                                                          ? 'cursor-grabbing'
+                                                          : 'cursor-grab'
+                                                }`}
+                                                style={{ maxWidth: '100%', height: 'auto', touchAction: 'none' }}
                                             />
                                         </div>
                                     </div>
                                     <p className="text-sm text-gray-500">
                                         {isAddingVariable
                                             ? `Klik pada PDF untuk menambahkan variabel "${newVariableName}"`
-                                            : selectedVariable !== null
-                                                ? `Klik pada PDF untuk memindahkan variabel "${variables[selectedVariable]?.name}"`
-                                                : 'Klik pada PDF untuk menambahkan atau memindahkan variabel'}
+                                            : 'Seret (drag) titik merah/biru untuk memindahkan posisi variabel, atau klik untuk memilih & mengatur font-nya.'}
                                     </p>
                                 </div>
                             </CardContent>
@@ -437,9 +542,16 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                     {variables.map((variable, index) => (
                                         <Card
                                             key={index}
-                                            className={`p-3 ${selectedVariable === index
+                                            onClick={() =>
+                                                setSelectedVariable(
+                                                    selectedVariable === index
+                                                        ? null
+                                                        : index,
+                                                )
+                                            }
+                                            className={`cursor-pointer p-3 transition-colors ${selectedVariable === index
                                                 ? 'border-blue-500 bg-blue-50'
-                                                : ''
+                                                : 'hover:border-gray-300'
                                                 }`}
                                         >
                                             <div className="space-y-2">
@@ -450,7 +562,10 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        onClick={() => handleDeleteVariable(index)}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteVariable(index);
+                                                        }}
                                                     >
                                                         <Trash2 className="h-4 w-4 text-red-500" />
                                                     </Button>
@@ -465,7 +580,10 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                                         {Math.round(variable.y)}
                                                     </div>
                                                 </div>
-                                                <div className="space-y-2">
+                                                <div
+                                                    className="space-y-2"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
                                                     <div>
                                                         <Label className="text-xs">
                                                             Ukuran Font
@@ -532,20 +650,14 @@ export default function TemplatesMapVariables({ template, user }: Props) {
                                                         </Select>
                                                     </div>
                                                 </div>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="w-full"
-                                                    onClick={() =>
-                                                        setSelectedVariable(
-                                                            selectedVariable === index ? null : index
-                                                        )
-                                                    }
-                                                >
-                                                    {selectedVariable === index
-                                                        ? 'Batal Pilih'
-                                                        : 'Pilih untuk Pindahkan'}
-                                                </Button>
+                                                {selectedVariable === index && (
+                                                    <p className="text-xs text-blue-600">
+                                                        Terpilih — seret
+                                                        titik biru di PDF
+                                                        untuk memindahkan
+                                                        posisinya.
+                                                    </p>
+                                                )}
                                             </div>
                                         </Card>
                                     ))}

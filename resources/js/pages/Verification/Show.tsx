@@ -47,7 +47,8 @@ interface VerificationProps {
     document: Document;
     signatures: Signature[];
     signers: Signer[];
-    verification_status: 'signed' | 'unsigned';
+    verification_status: 'signed' | 'unsigned' | 'tampered';
+    integrity_status?: 'valid' | 'tampered' | 'file_missing' | 'unknown';
     verified_at: string;
     success: boolean;
     message?: string;
@@ -58,10 +59,12 @@ export default function VerificationShow({
     signatures,
     signers,
     verification_status,
+    integrity_status,
     verified_at,
     success,
     message,
 }: VerificationProps) {
+    const isTampered = verification_status === 'tampered';
     const isVerified = verification_status === 'signed' && success;
 
     return (
@@ -84,16 +87,28 @@ export default function VerificationShow({
                     </div>
 
                     <h1 className="mb-2 text-3xl font-bold text-gray-900">
-                        {isVerified
-                            ? 'Dokumen Terverifikasi'
-                            : 'Dokumen Tidak Terverifikasi'}
+                        {isTampered
+                            ? 'Dokumen Telah Diubah'
+                            : isVerified
+                                ? 'Dokumen Terverifikasi'
+                                : 'Dokumen Tidak Terverifikasi'}
                     </h1>
 
                     <p className="text-lg text-gray-600">
-                        {isVerified
-                            ? 'Dokumen ini telah ditandatangani secara resmi dan dapat dipercaya'
-                            : 'Dokumen ini belum ditandatangani atau tidak valid'}
+                        {message ??
+                            (isVerified
+                                ? 'Dokumen ini telah ditandatangani secara resmi dan dapat dipercaya'
+                                : 'Dokumen ini belum ditandatangani atau tidak valid')}
                     </p>
+
+                    {isTampered && (
+                        <div className="mx-auto mt-4 max-w-xl rounded-lg border border-red-200 bg-red-50 p-4 text-left text-sm text-red-800">
+                            File PDF yang tersimpan di server saat ini tidak
+                            cocok dengan hash yang tercatat pada saat
+                            penandatanganan. Isi dokumen kemungkinan telah
+                            dimodifikasi setelah ditandatangani.
+                        </div>
+                    )}
                 </div>
 
                 {/* Document Info Card */}
@@ -344,6 +359,26 @@ export default function VerificationShow({
                                 {document.id}
                             </p>
                         </div>
+
+                        {integrity_status && integrity_status !== 'unknown' && (
+                            <div>
+                                <label className="text-sm font-medium text-gray-500">
+                                    Integritas File
+                                </label>
+                                <p
+                                    className={`text-lg font-medium ${integrity_status === 'valid'
+                                        ? 'text-green-600'
+                                        : 'text-red-600'
+                                        }`}
+                                >
+                                    {integrity_status === 'valid'
+                                        ? '✓ File Asli (Hash Cocok)'
+                                        : integrity_status === 'tampered'
+                                            ? '✗ File Telah Diubah'
+                                            : 'File Tidak Ditemukan'}
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </div>
 

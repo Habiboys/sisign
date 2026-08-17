@@ -7,13 +7,13 @@ use App\Models\EncryptionKey;
 use App\Models\Signature;
 use App\Models\TemplateSertif;
 use App\Models\User;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use setasign\Fpdi\Fpdi;
-use Exception;
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
+use Exception;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use setasign\Fpdi\Fpdi;
 
 class SignatureService
 {
@@ -23,6 +23,7 @@ class SignatureService
     {
         $this->encryptionService = $encryptionService;
     }
+
     /**
      * Create a physical signature (canvas-based)
      */
@@ -43,7 +44,7 @@ class SignatureService
         ]);
 
         // Ensure either documentId or templateSertifId is provided
-        if (!$documentId && !$templateSertifId) {
+        if (! $documentId && ! $templateSertifId) {
             throw new Exception('Either documentId or templateSertifId must be provided');
         }
 
@@ -72,7 +73,7 @@ class SignatureService
             Log::info('SignatureService: Physical signature created successfully', ['id' => $signature->id]);
 
             return $signature;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('SignatureService: Failed to create physical signature', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
@@ -92,13 +93,13 @@ class SignatureService
         $position = $data['position'] ?? [];
 
         // Ensure either documentId or templateSertifId is provided
-        if (!$documentId && !$templateSertifId) {
+        if (! $documentId && ! $templateSertifId) {
             throw new Exception('Either documentId or templateSertifId must be provided');
         }
 
         // Get user's encryption keys
         $encryptionKey = EncryptionKey::where('userId', $userId)->first();
-        if (!$encryptionKey) {
+        if (! $encryptionKey) {
             throw new Exception('User encryption keys not found. Please generate keys first.');
         }
 
@@ -136,16 +137,16 @@ class SignatureService
      */
     public function applySignaturesToPDF(Document $document): string
     {
-        $originalPath = storage_path('app/public/documents/' . $document->files);
-        $signedPath = storage_path('app/signed/' . Str::uuid() . '.pdf');
+        $originalPath = storage_path('app/public/documents/'.$document->files);
+        $signedPath = storage_path('app/signed/'.Str::uuid().'.pdf');
 
         // Ensure signed directory exists
-        if (!file_exists(dirname($signedPath))) {
+        if (! file_exists(dirname($signedPath))) {
             mkdir(dirname($signedPath), 0755, true);
         }
 
         // Initialize FPDI
-        $pdf = new Fpdi();
+        $pdf = new Fpdi;
         $pageCount = $pdf->setSourceFile($originalPath);
 
         $signatures = $document->signatures()
@@ -159,7 +160,7 @@ class SignatureService
             $size = $pdf->getTemplateSize($templateId);
 
             // Add page ONCE for this original page
-            $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+            $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
             $pdf->useTemplate($templateId);
 
             // Get ALL signatures for this page
@@ -212,15 +213,15 @@ class SignatureService
                 return;
             }
 
-            $tempPath = storage_path('app/temp_signature_' . uniqid() . '.png');
+            $tempPath = storage_path('app/temp_signature_'.uniqid().'.png');
             file_put_contents($tempPath, $imageData);
 
-            if (!file_exists($tempPath)) {
+            if (! file_exists($tempPath)) {
                 return;
             }
 
             $signaturePath = $tempPath;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return;
         }
 
@@ -296,13 +297,13 @@ class SignatureService
 
         $pdf->SetFont('Arial', '', 8);
         $pdf->SetXY($x + 5, $y + 15);
-        $pdf->Cell($signature->width - 10, 5, 'By: ' . $signature->user->name, 0, 1, 'L');
+        $pdf->Cell($signature->width - 10, 5, 'By: '.$signature->user->name, 0, 1, 'L');
 
         $pdf->SetXY($x + 5, $y + 22);
-        $pdf->Cell($signature->width - 10, 5, 'Date: ' . $signature->signedAt->format('d/m/Y H:i:s'), 0, 1, 'L');
+        $pdf->Cell($signature->width - 10, 5, 'Date: '.$signature->signedAt->format('d/m/Y H:i:s'), 0, 1, 'L');
 
         $pdf->SetXY($x + 5, $y + 29);
-        $pdf->Cell($signature->width - 10, 5, 'Hash: ' . substr($signature->signatureHash, 0, 20) . '...', 0, 1, 'L');
+        $pdf->Cell($signature->width - 10, 5, 'Hash: '.substr($signature->signatureHash, 0, 20).'...', 0, 1, 'L');
 
         // Add verification info
         $pdf->SetFont('Arial', 'I', 7);
@@ -319,11 +320,11 @@ class SignatureService
         $base64Data = preg_replace('/^data:image\/\w+;base64,/', '', $base64Data);
 
         $imageData = base64_decode($base64Data);
-        $filename = 'signatures/' . $userId . '/' . Str::uuid() . '.png';
+        $filename = 'signatures/'.$userId.'/'.Str::uuid().'.png';
 
         // Ensure directory exists
-        $directory = storage_path('app/' . dirname($filename));
-        if (!file_exists($directory)) {
+        $directory = storage_path('app/'.dirname($filename));
+        if (! file_exists($directory)) {
             mkdir($directory, 0755, true);
         }
 
@@ -333,25 +334,43 @@ class SignatureService
     }
 
     /**
-     * Create document hash for digital signature
+     * Create document hash for digital signature (unique per-signing proof: includes
+     * timestamp so it can't be replayed, used for the cryptographic signature only —
+     * NOT for later integrity verification, see hashFile()/content_hash instead).
      */
     private function createDocumentHash(Document $document): string
     {
-        $documentPath = storage_path('app/public/documents/' . $document->files);
+        $documentPath = storage_path('app/public/documents/'.$document->files);
         $documentContent = file_get_contents($documentPath);
 
-        return hash('sha256', $documentContent . $document->id . now()->timestamp);
+        return hash('sha256', $documentContent.$document->id.now()->timestamp);
     }
 
     /**
-     * Create template hash for digital signature
+     * Create template hash for digital signature (see createDocumentHash() note).
      */
     private function createTemplateHash(TemplateSertif $template): string
     {
-        $templatePath = storage_path('app/public/templates/' . $template->files);
+        $templatePath = storage_path('app/public/templates/'.$template->files);
         $templateContent = file_get_contents($templatePath);
 
-        return hash('sha256', $templateContent . $template->id . now()->timestamp);
+        return hash('sha256', $templateContent.$template->id.now()->timestamp);
+    }
+
+    /**
+     * SHA-256 hash dari byte file di path absolut. Dipakai untuk integrity check
+     * berbasis QR: dihitung ulang saat verifikasi dan dibandingkan dengan content_hash
+     * yang tersimpan di DB saat penandatanganan.
+     */
+    public function hashFile(string $absolutePath): ?string
+    {
+        if (! file_exists($absolutePath)) {
+            return null;
+        }
+
+        $hash = hash_file('sha256', $absolutePath);
+
+        return $hash !== false ? $hash : null;
     }
 
     /**
@@ -362,16 +381,16 @@ class SignatureService
         try {
             // Create verification URL
             $baseUrl = config('app.url', 'http://localhost:8000');
-            $verificationUrl = $baseUrl . "/verify-document/" . $document->id;
+            $verificationUrl = $baseUrl.'/verify-document/'.$document->id;
 
             // Generate QR code
             $qrCode = new QrCode($verificationUrl);
 
-            $writer = new PngWriter();
+            $writer = new PngWriter;
             $result = $writer->write($qrCode);
 
             // Save QR code temporarily
-            $qrPath = storage_path('app/temp_qr_' . uniqid() . '.png');
+            $qrPath = storage_path('app/temp_qr_'.uniqid().'.png');
             file_put_contents($qrPath, $result->getString());
 
             Log::info("QR Code generated: {$verificationUrl}, saved to: {$qrPath}");
@@ -393,8 +412,8 @@ class SignatureService
             if (file_exists($qrPath)) {
                 unlink($qrPath);
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to add QR code: ' . $e->getMessage() . ' - Stack: ' . $e->getTraceAsString());
+        } catch (Exception $e) {
+            Log::error('Failed to add QR code: '.$e->getMessage().' - Stack: '.$e->getTraceAsString());
         }
     }
 
@@ -408,7 +427,7 @@ class SignatureService
             'subject' => $encryptionKey->user->name,
             'valid_from' => $encryptionKey->created_at->toISOString(),
             'algorithm' => 'SHA256withRSA',
-            'key_size' => '2048 bits'
+            'key_size' => '2048 bits',
         ]);
     }
 
@@ -418,12 +437,12 @@ class SignatureService
     public function verifyDigitalSignature(Signature $signature): bool
     {
         $encryptionKey = EncryptionKey::where('userId', $signature->userId)->first();
-        if (!$encryptionKey) {
+        if (! $encryptionKey) {
             return false;
         }
 
         $publicKeyResource = openssl_pkey_get_public($encryptionKey->publicKey);
-        if (!$publicKeyResource) {
+        if (! $publicKeyResource) {
             return false;
         }
 
@@ -452,7 +471,7 @@ class SignatureService
                 'width',
                 'height',
                 'page_number',
-                'signedAt'
+                'signedAt',
             ])
             ->with('user:id,name')
             ->get()
@@ -463,7 +482,7 @@ class SignatureService
     {
         Log::info('saveSignedPDF called', [
             'document_id' => $document->id,
-            'data_length' => strlen($signedPdfBase64)
+            'data_length' => strlen($signedPdfBase64),
         ]);
 
         // Decode base64 PDF data
@@ -472,29 +491,33 @@ class SignatureService
         Log::info('PDF decode result:', [
             'original_length' => strlen($signedPdfBase64),
             'decoded_length' => strlen($pdfData),
-            'is_valid' => $pdfData !== false
+            'is_valid' => $pdfData !== false,
         ]);
 
-        if (!$pdfData) {
+        if (! $pdfData) {
             Log::error('Failed to decode base64 PDF data');
-            throw new \Exception('Failed to decode base64 PDF data');
+            throw new Exception('Failed to decode base64 PDF data');
         }
 
         // Generate filename (replace spaces with underscores)
         $originalFilename = str_replace(' ', '_', $document->files);
-        $filename = 'signed_' . time() . '_' . $originalFilename;
+        $filename = 'signed_'.time().'_'.$originalFilename;
 
         // Save to storage
-        $path = 'documents/signed/' . $filename;
+        $path = 'documents/signed/'.$filename;
         $saved = Storage::disk('public')->put($path, $pdfData);
 
-        if (!$saved) {
+        if (! $saved) {
             Log::error('Failed to save PDF to storage');
-            throw new \Exception('Failed to save PDF to storage');
+            throw new Exception('Failed to save PDF to storage');
         }
 
-        // Update document with signed file path
-        $document->update(['signed_file' => $path]);
+        // Update document with signed file path and content hash for tamper-detection
+        // during QR-code verification (recomputed from disk and compared on verify).
+        $document->update([
+            'signed_file' => $path,
+            'content_hash' => hash('sha256', $pdfData),
+        ]);
 
         // Verify the saved file
         $savedFileSize = Storage::disk('public')->size($path);
@@ -503,7 +526,7 @@ class SignatureService
             'path' => $path,
             'original_size' => strlen($pdfData),
             'saved_size' => $savedFileSize,
-            'size_match' => strlen($pdfData) === $savedFileSize
+            'size_match' => strlen($pdfData) === $savedFileSize,
         ]);
     }
 
@@ -511,27 +534,27 @@ class SignatureService
     {
         Log::info('saveSignedPDFTemplate called', [
             'template_id' => $template->id,
-            'data_length' => strlen($signedPdfBase64)
+            'data_length' => strlen($signedPdfBase64),
         ]);
 
         // Decode base64 PDF data
         $pdfData = base64_decode($signedPdfBase64);
 
-        if (!$pdfData) {
+        if (! $pdfData) {
             Log::error('Failed to decode base64 PDF data for template');
-            throw new \Exception('Failed to decode base64 PDF data for template');
+            throw new Exception('Failed to decode base64 PDF data for template');
         }
 
         // Generate filename
         $originalFilename = str_replace(' ', '_', $template->files);
         // Use consistent filename for signed template to support overwriting/appending
-        $filename = 'signed_' . $template->id . '_' . $originalFilename;
-        $path = 'templates/signed/' . $filename;
-        $outputPath = storage_path('app/public/' . $path);
+        $filename = 'signed_'.$template->id.'_'.$originalFilename;
+        $path = 'templates/signed/'.$filename;
+        $outputPath = storage_path('app/public/'.$path);
 
         // Ensure directory exists
         $outputDir = dirname($outputPath);
-        if (!is_dir($outputDir)) {
+        if (! is_dir($outputDir)) {
             mkdir($outputDir, 0755, true);
         }
 
@@ -540,8 +563,12 @@ class SignatureService
         // Note: Frontend now disables Object Streams, so this should be compatible.
         file_put_contents($outputPath, $pdfData);
 
-        // Update template with signed file path
-        $template->update(['signed_template_path' => $path]);
+        // Update template with signed file path and content hash for tamper-detection
+        // during QR-code verification (recomputed from disk and compared on verify).
+        $template->update([
+            'signed_template_path' => $path,
+            'content_hash' => hash('sha256', $pdfData),
+        ]);
 
         // Check if template is fully signed
         if ($template->fresh()->isCompleted()) {
@@ -552,7 +579,7 @@ class SignatureService
         Log::info('Signed template PDF saved successfully', [
             'template_id' => $template->id,
             'path' => $path,
-            'size' => filesize($outputPath)
+            'size' => filesize($outputPath),
         ]);
     }
 
@@ -566,7 +593,7 @@ class SignatureService
         foreach ($commands as $cmd) {
             $output = [];
             $returnCode = 0;
-            exec(escapeshellarg($cmd) . ' --version 2>&1', $output, $returnCode);
+            exec(escapeshellarg($cmd).' --version 2>&1', $output, $returnCode);
 
             if ($returnCode === 0) {
                 return $cmd;
@@ -575,23 +602,24 @@ class SignatureService
 
         return null;
     }
+
     /**
      * Add verification QR code to template PDF
      */
     public function addTemplateVerificationQRCode(TemplateSertif $template): void
     {
-        if (!$template->signed_template_path) {
+        if (! $template->signed_template_path) {
             return;
         }
 
-        $filePath = storage_path('app/public/' . $template->signed_template_path);
-        if (!file_exists($filePath)) {
+        $filePath = storage_path('app/public/'.$template->signed_template_path);
+        if (! file_exists($filePath)) {
             return;
         }
 
         try {
             // Initialize FPDI
-            $pdf = new Fpdi();
+            $pdf = new Fpdi;
             $pageCount = $pdf->setSourceFile($filePath);
 
             // Copy all pages
@@ -599,22 +627,22 @@ class SignatureService
                 $templateId = $pdf->importPage($pageNo);
                 $size = $pdf->getTemplateSize($templateId);
 
-                $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+                $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
                 $pdf->useTemplate($templateId);
 
                 // Add QR code on the last page
                 if ($pageNo === $pageCount) {
                     // Create verification URL
                     $baseUrl = config('app.url', 'http://localhost:8000');
-                    $verificationUrl = $baseUrl . "/verify-template/" . $template->id;
+                    $verificationUrl = $baseUrl.'/verify-template/'.$template->id;
 
                     // Generate QR code
                     $qrCode = new QrCode($verificationUrl);
-                    $writer = new PngWriter();
+                    $writer = new PngWriter;
                     $result = $writer->write($qrCode);
 
                     // Save QR code temporarily
-                    $qrPath = storage_path('app/temp_qr_' . uniqid() . '.png');
+                    $qrPath = storage_path('app/temp_qr_'.uniqid().'.png');
                     file_put_contents($qrPath, $result->getString());
 
                     // Position QR code at bottom right corner
@@ -635,16 +663,104 @@ class SignatureService
 
             // Save back to the same path
             $pdf->Output($filePath, 'F');
-            
+
             Log::info('QR code added to template', ['template_id' => $template->id]);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Failed to add QR code to template', [
                 'template_id' => $template->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
             // Don't throw exception, just log error so the signing process completes
         }
+    }
+
+    /**
+     * Reconstruct signed document PDF from original file + remaining active signatures.
+     * Used after a signer's signatures (physical + digital) are removed, so the
+     * cumulative signed PDF stays consistent with what is actually left in the DB.
+     */
+    public function reconstructSignedDocument(Document $document): void
+    {
+        Log::info('Reconstructing signed document', ['document_id' => $document->id]);
+
+        $signatures = Signature::where('documentId', $document->id)
+            ->orderBy('created_at')
+            ->get();
+
+        if ($signatures->isEmpty()) {
+            Log::info('No signatures left, clearing signed document path');
+            if ($document->signed_file) {
+                $fullPath = storage_path('app/public/'.$document->signed_file);
+                if (file_exists($fullPath)) {
+                    unlink($fullPath);
+                }
+            }
+            $document->update(['signed_file' => null, 'content_hash' => null]);
+
+            return;
+        }
+
+        $originalPath = storage_path('app/public/documents/'.$document->files);
+        if (! file_exists($originalPath)) {
+            throw new Exception('Original document file not found');
+        }
+
+        $tempPath = storage_path('app/temp/reconstruct_'.uniqid().'.pdf');
+        $tempDir = dirname($tempPath);
+        if (! is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        $pdf = new Fpdi;
+        $pageCount = $pdf->setSourceFile($originalPath);
+
+        for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+            $templateId = $pdf->importPage($pageNo);
+            $size = $pdf->getTemplateSize($templateId);
+
+            $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
+            $pdf->useTemplate($templateId);
+
+            $pageSignatures = $signatures->where('page_number', $pageNo);
+            foreach ($pageSignatures as $signature) {
+                if ($signature->type === 'physical') {
+                    $this->applyPhysicalSignature($pdf, $signature, $size);
+                }
+            }
+        }
+
+        $pdf->Output($tempPath, 'F');
+
+        $originalFilename = str_replace(' ', '_', $document->files);
+        $filename = 'signed_'.$document->id.'_'.$originalFilename;
+        $path = 'documents/signed/'.$filename;
+        $outputPath = storage_path('app/public/'.$path);
+
+        $outputDir = dirname($outputPath);
+        if (! is_dir($outputDir)) {
+            mkdir($outputDir, 0755, true);
+        }
+
+        if (file_exists($outputPath)) {
+            unlink($outputPath);
+        }
+        rename($tempPath, $outputPath);
+
+        // Remove the old signed file if it lived at a different (legacy random) path.
+        if ($document->signed_file && $document->signed_file !== $path) {
+            $oldPath = storage_path('app/public/'.$document->signed_file);
+            if (file_exists($oldPath)) {
+                unlink($oldPath);
+            }
+        }
+
+        $document->update([
+            'signed_file' => $path,
+            'content_hash' => $this->hashFile($outputPath),
+        ]);
+
+        Log::info('Document reconstruction complete', ['path' => $path]);
     }
 
     /**
@@ -663,38 +779,39 @@ class SignatureService
             Log::info('No signatures left, clearing signed template path');
             // Delete the signed file if exists
             if ($template->signed_template_path) {
-                $fullPath = storage_path('app/public/' . $template->signed_template_path);
+                $fullPath = storage_path('app/public/'.$template->signed_template_path);
                 if (file_exists($fullPath)) {
                     unlink($fullPath);
                 }
             }
-            $template->update(['signed_template_path' => null]);
+            $template->update(['signed_template_path' => null, 'content_hash' => null]);
+
             return;
         }
 
         // We have signatures, so we need to rebuild the PDF
         // 1. Load original template
-        $originalPath = storage_path('app/public/templates/' . $template->files);
-        if (!file_exists($originalPath)) {
+        $originalPath = storage_path('app/public/templates/'.$template->files);
+        if (! file_exists($originalPath)) {
             throw new Exception('Original template file not found');
         }
 
         // 2. Create new PDF from original
         // Create temp file for reconstruction
-        $tempPath = storage_path('app/temp/reconstruct_' . uniqid() . '.pdf');
+        $tempPath = storage_path('app/temp/reconstruct_'.uniqid().'.pdf');
         $tempDir = dirname($tempPath);
-        if (!is_dir($tempDir)) {
+        if (! is_dir($tempDir)) {
             mkdir($tempDir, 0755, true);
         }
 
-        $pdf = new Fpdi();
+        $pdf = new Fpdi;
         $pageCount = $pdf->setSourceFile($originalPath);
 
         for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
             $templateId = $pdf->importPage($pageNo);
             $size = $pdf->getTemplateSize($templateId);
 
-            $pdf->AddPage($size['orientation'], array($size['width'], $size['height']));
+            $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
             $pdf->useTemplate($templateId);
 
             // Apply signatures for this page
@@ -712,13 +829,13 @@ class SignatureService
         // 3. Move to final signed path
         // Use consistent filename
         $originalFilename = str_replace(' ', '_', $template->files);
-        $filename = 'signed_' . $template->id . '_' . $originalFilename;
-        $path = 'templates/signed/' . $filename;
-        $outputPath = storage_path('app/public/' . $path);
+        $filename = 'signed_'.$template->id.'_'.$originalFilename;
+        $path = 'templates/signed/'.$filename;
+        $outputPath = storage_path('app/public/'.$path);
 
         // Ensure directory exists
         $outputDir = dirname($outputPath);
-        if (!is_dir($outputDir)) {
+        if (! is_dir($outputDir)) {
             mkdir($outputDir, 0755, true);
         }
 
@@ -729,12 +846,15 @@ class SignatureService
         }
         rename($tempPath, $outputPath);
 
-        // Update template path
-        $template->update(['signed_template_path' => $path]);
+        // Update template path and content hash (PDF was rebuilt, hash must match new bytes)
+        $template->update([
+            'signed_template_path' => $path,
+            'content_hash' => $this->hashFile($outputPath),
+        ]);
 
         // 4. Check if fully signed (again)
         if ($template->fresh()->isCompleted()) {
-             // QR code is NOT added to template
+            // QR code is NOT added to template
         }
 
         Log::info('Template reconstruction complete', ['path' => $path]);

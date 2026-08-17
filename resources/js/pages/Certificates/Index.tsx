@@ -38,7 +38,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import AppLayout from '@/layouts/app-layout';
 import { routes } from '@/utils/routes';
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { Award, CheckCircle2, Clock, Eye, Mail, Search, Trash2, X, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -95,17 +95,8 @@ export default function CertificatesIndex({ sertifikats, user, search = '' }: Pr
     const [mathNum2, setMathNum2] = useState(0);
     const [mathAnswer, setMathAnswer] = useState('');
     const { success, error } = useToast();
-    const { flash } = usePage().props as any;
-
-    // Handle flash messages dari backend
-    useEffect(() => {
-        if (flash?.success) {
-            success(flash.success);
-        }
-        if (flash?.error) {
-            error(flash.error);
-        }
-    }, [flash, success, error]);
+    // Flash messages from the backend are shown automatically by the app
+    // layout - no need to read `flash` and toast again here.
 
     // Debounced search - wait 500ms after user stops typing
     useEffect(() => {
@@ -194,11 +185,11 @@ export default function CertificatesIndex({ sertifikats, user, search = '' }: Pr
     };
 
     const handleDelete = (id: string, nomorSertif: string) => {
+        // Backend flashes a success message, shown automatically by the app layout.
         router.delete(routes.certificates.destroy(id), {
             onStart: () => setDeletingId(id),
             onFinish: () => setDeletingId(null),
             onSuccess: () => {
-                success(`Sertifikat ${nomorSertif} berhasil dihapus`);
                 // Remove from selection if selected
                 if (selectedIds.has(id)) {
                     const newSelected = new Set(selectedIds);
@@ -522,13 +513,13 @@ export default function CertificatesIndex({ sertifikats, user, search = '' }: Pr
                                             ids: Array.from(selectedIds)
                                         };
 
+                                    // Backend flashes a success message, shown automatically by the app layout.
                                     router.post('/certificates/bulk-delete', payload, {
                                         onSuccess: () => {
                                             setSelectedIds(new Set());
                                             setSelectAllMode(false);
                                             setShowBulkDeleteModal(false);
                                             setMathAnswer('');
-                                            success(selectAllMode ? 'Semua sertifikat berhasil dihapus' : `${selectedIds.size} sertifikat berhasil dihapus`);
                                         },
                                         onError: () => {
                                             error('Gagal menghapus sertifikat');
