@@ -640,7 +640,7 @@ class TemplateSertifController extends Controller
             return back()->with('error', 'Template harus ditandatangani oleh semua pihak terlebih dahulu.');
         }
 
-        $request->validate([
+        $validated = $request->validate([
             'variable_positions' => 'required|array',
             'variable_positions.*.name' => 'required|string|max:255',
             'variable_positions.*.x' => 'required|numeric',
@@ -650,10 +650,18 @@ class TemplateSertifController extends Controller
             'variable_positions.*.fontSize' => 'nullable|numeric|min:8|max:72',
             'variable_positions.*.fontFamily' => 'nullable|string|max:50',
             'variable_positions.*.alignment' => 'nullable|in:L,C,R',
+            'variable_positions.*.fontStyle' => 'nullable|in:N,B,I,U,BI,BU,IU,BIU',
+            'variable_positions.*.textColor' => ['nullable', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'variable_positions.*.opacity' => 'nullable|numeric|between:0,1',
+            'variable_positions.*.colorMode' => 'nullable|in:solid,gradient',
+            'variable_positions.*.gradientColors' => 'nullable|array|list|min:2|max:5',
+            'variable_positions.*.gradientColors.*' => ['required', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'variable_positions.*.gradientAngle' => 'nullable|numeric|between:0,360',
+            'variable_positions.*.layoutVersion' => 'nullable|integer|in:2',
         ]);
 
         $template->update([
-            'variable_positions' => $request->variable_positions,
+            'variable_positions' => $validated['variable_positions'],
         ]);
 
         // Refresh template untuk memastikan data ter-update

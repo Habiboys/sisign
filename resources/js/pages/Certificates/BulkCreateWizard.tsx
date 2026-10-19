@@ -1,3 +1,9 @@
+import { downloadExcelTemplate } from '@/actions/App/Http/Controllers/SertifikatController';
+import {
+    saveVariablePositions,
+    viewSignedPDF,
+} from '@/actions/App/Http/Controllers/TemplateSertifController';
+import CertificateTextSettings from '@/components/CertificateTextSettings';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,6 +25,13 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import AppLayout from '@/layouts/app-layout';
+import {
+    drawCertificateVariables,
+    prepareCertificateMapping,
+    previewText,
+    textBounds,
+    type VariablePosition,
+} from '@/lib/certificate-mapping';
 import { routes } from '@/utils/routes';
 import { Head, router, useForm } from '@inertiajs/react';
 import {
@@ -30,20 +43,9 @@ import {
     Download,
     FileSpreadsheet,
     MapPin,
-    Upload
+    Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-interface VariablePosition {
-    name: string;
-    x: number;
-    y: number;
-    x_pct?: number;
-    y_pct?: number;
-    fontSize?: number;
-    fontFamily?: string;
-    alignment?: 'L' | 'C' | 'R';
-}
 
 interface Template {
     id: string;
@@ -68,21 +70,39 @@ interface Props {
 
 type Step = 'select' | 'mapping' | 'upload';
 
-export default function CertificatesBulkCreateWizard({ templates, user }: Props) {
+export default function CertificatesBulkCreateWizard({
+    templates,
+    user,
+}: Props) {
     const { error, info } = useToast();
     const [currentStep, setCurrentStep] = useState<Step>('select');
     const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
     const [variables, setVariables] = useState<VariablePosition[]>([]);
     const [isMappingMode, setIsMappingMode] = useState(false);
     const [newVariableName, setNewVariableName] = useState('');
-    const [selectedVariable, setSelectedVariable] = useState<number | null>(null);
+    const [samples, setSamples] = useState<Record<string, string>>({});
+    const [cleanPreview, setCleanPreview] = useState(false);
+    const [selectedVariable, setSelectedVariable] = useState<number | null>(
+        null,
+    );
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [pdfUrl, setPdfUrl] = useState<string>('');
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
     const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
-    const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStateRef = useRef<{
+        index: number;
+        moved: boolean;
+        startX: number;
+        startY: number;
+        offsetX: number;
+        offsetY: number;
+    } | null>(null);
+    const justDraggedRef = useRef(false);
+
+    const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
 
     const { data, setData, post, processing, errors, transform } = useForm({
         templateSertifId: '',
@@ -95,10 +115,13 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
     useEffect(() => {
         if (selectedTemplate?.signed_template_path && selectedTemplate?.id) {
             // Use route to serve PDF instead of direct storage access
-            const url = `/templates/${selectedTemplate.id}/signed-pdf`;
+            const url = viewSignedPDF.url(selectedTemplate.id);
             setPdfUrl(url);
             // Load variable positions dari template (jika sudah ada di DB)
-            if (selectedTemplate.variable_positions && selectedTemplate.variable_positions.length > 0) {
+            if (
+                selectedTemplate.variable_positions &&
+                selectedTemplate.variable_positions.length > 0
+            ) {
                 setVariables(selectedTemplate.variable_positions);
             } else {
                 // Reset variables jika template belum punya mapping
@@ -107,9 +130,15 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
         }
     }, [selectedTemplate]);
 
-    const loadPDF = useCallback(async () => {
-        if (!pdfUrl || !pdfCanvasRef.current || !overlayCanvasRef.current) return;
+    const initialPdfRef = useRef('');
+    const [pdfLoading, setPdfLoading] = useState(false);
+    const drawRef = useRef<() => void>(() => {});
 
+    const loadPDF = useCallback(async () => {
+        if (!pdfUrl || !pdfCanvasRef.current || !overlayCanvasRef.current)
+            return;
+
+        setPdfLoading(true);
         try {
             const pdfjsLib = await import('pdfjs-dist');
             pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -117,6 +146,13 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
 
             const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
             setTotalPages(pdf.numPages);
+            if (initialPdfRef.current !== pdfUrl) {
+                initialPdfRef.current = pdfUrl;
+                if (currentPage !== pdf.numPages) {
+                    setCurrentPage(pdf.numPages);
+                    return;
+                }
+            }
 
             const pageData = await pdf.getPage(currentPage);
             const viewport = pageData.getViewport({ scale: 1.5 });
@@ -141,59 +177,51 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
             await pageData.render(renderContext).promise;
 
             // Draw variables on overlay
-            drawVariables();
+            drawRef.current();
         } catch (err) {
             console.error('Error loading PDF:', err);
             error('Gagal memuat PDF template');
+        } finally {
+            setPdfLoading(false);
         }
     }, [pdfUrl, currentPage]); // Removed variables dependency
 
     const drawVariables = useCallback(() => {
         const canvas = overlayCanvasRef.current;
-        if (!canvas) return;
+        if (canvas)
+            drawCertificateVariables(
+                canvas,
+                currentPage === totalPages ? variables : [],
+                selectedVariable,
+                samples,
+                cleanPreview,
+            );
+    }, [
+        variables,
+        selectedVariable,
+        samples,
+        cleanPreview,
+        currentPage,
+        totalPages,
+    ]);
 
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        // Clear overlay
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Draw markers
-        variables.forEach((variable, index) => {
-            // Scale is 1 because canvas width matches viewport width set in loadPDF
-            // But we need to be careful if variables.x/y were saved with a different scale?
-            // Assuming variables.x/y are in canvas coordinates (which they are from handleCanvasClick)
-
-            // If using percentage, recalculate x/y
-            let x = variable.x;
-            let y = variable.y;
-
-            if (variable.x_pct !== undefined && variable.y_pct !== undefined) {
-                x = variable.x_pct * canvas.width;
-                y = variable.y_pct * canvas.height;
-            }
-
-            // Draw marker circle
-            ctx.fillStyle = index === selectedVariable ? 'rgba(59, 130, 246, 0.8)' : 'rgba(239, 68, 68, 0.8)';
-            ctx.beginPath();
-            ctx.arc(x, y, 8, 0, 2 * Math.PI);
-            ctx.fill();
-
-            // Draw label
-            ctx.fillStyle = '#000';
-
-            const fontSize = (variable.fontSize || 12) * 1.5;
-            const fontFamily = variable.fontFamily || 'Arial';
-            ctx.font = `${fontSize}px ${fontFamily}`;
-
-            ctx.fillText(variable.name, x + 12, y + (fontSize / 3));
-        });
-    }, [variables, selectedVariable]);
-
-    // Re-draw variables when they change
     useEffect(() => {
+        drawRef.current = drawVariables;
         drawVariables();
-    }, [drawVariables]);
+        let active = true;
+        Promise.all(
+            variables.map((variable) =>
+                document.fonts.load(
+                    `${(variable.fontStyle ?? 'B').includes('I') ? 'italic' : 'normal'} ${(variable.fontStyle ?? 'B').includes('B') ? 'bold' : 'normal'} 12px "${variable.fontFamily ?? 'Arial'}"`,
+                ),
+            ),
+        ).then(() => {
+            if (active) drawRef.current();
+        });
+        return () => {
+            active = false;
+        };
+    }, [drawVariables, variables]);
 
     useEffect(() => {
         if (currentStep === 'mapping' && pdfUrl) {
@@ -204,7 +232,7 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
     const handleTemplateSelect = (templateId: string) => {
         setSelectedTemplateId(templateId);
         setData('templateSertifId', templateId);
-        const template = templates.find(t => t.id === templateId);
+        const template = templates.find((t) => t.id === templateId);
         if (template?.has_variables_mapped) {
             setCurrentStep('upload');
         } else {
@@ -212,33 +240,66 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
         }
     };
 
-    const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-        if (!isMappingMode || !newVariableName.trim()) {
-            if (selectedVariable !== null) {
-                // Update selected variable position
-                const canvas = overlayCanvasRef.current;
-                if (!canvas) return;
+    const getCanvasCoords = (
+        e: { clientX: number; clientY: number },
+        canvas: HTMLCanvasElement,
+    ) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
 
-                const rect = canvas.getBoundingClientRect();
-                const scaleX = canvas.width / rect.width;
-                const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
 
-                const x = (e.clientX - rect.left) * scaleX;
-                const y = (e.clientY - rect.top) * scaleY;
+        return {
+            x: Math.max(0, Math.min(canvas.width, x)),
+            y: Math.max(0, Math.min(canvas.height, y)),
+            x_pct: Math.max(0, Math.min(1, x / canvas.width)),
+            y_pct: Math.max(0, Math.min(1, y / canvas.height)),
+        };
+    };
 
-                const updated = [...variables];
-                updated[selectedVariable] = {
-                    ...updated[selectedVariable],
-                    x: x,
-                    y: y,
-                    x_pct: x / canvas.width,
-                    y_pct: y / canvas.height,
-                };
-                setVariables(updated);
-                setSelectedVariable(null);
+    const findVariableAtPosition = (
+        x: number,
+        y: number,
+        canvas: HTMLCanvasElement,
+    ): number | null => {
+        const hitRadius = 14; // slightly bigger than the drawn marker for easier grabbing
+        for (let i = variables.length - 1; i >= 0; i--) {
+            const variable = variables[i];
+            let vx = variable.x;
+            let vy = variable.y;
+            if (variable.x_pct !== undefined && variable.y_pct !== undefined) {
+                vx = variable.x_pct * canvas.width;
+                vy = variable.y_pct * canvas.height;
             }
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+            const bounds = textBounds(
+                ctx,
+                variable,
+                samples[variable.name] ?? previewText(variable.name),
+            );
+            if (
+                Math.hypot(x - vx, y - vy) <= hitRadius ||
+                (x >= bounds.left - 8 &&
+                    x <= bounds.left + bounds.width + 8 &&
+                    y >= bounds.y - bounds.size - 8 &&
+                    y <= bounds.y + 10)
+            ) {
+                return i;
+            }
+        }
+        return null;
+    };
+
+    const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        if (pdfLoading || currentPage !== totalPages) return;
+        if (justDraggedRef.current) {
+            justDraggedRef.current = false;
             return;
         }
+        if (!isMappingMode || !newVariableName.trim()) return;
 
         const canvas = overlayCanvasRef.current;
         if (!canvas) return;
@@ -265,11 +326,108 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
             alignment: 'C',
         };
         setVariables([...variables, newVariable]);
+        setSelectedVariable(variables.length);
         setNewVariableName('');
         setIsMappingMode(false);
     };
 
+    const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = overlayCanvasRef.current;
+        if (
+            !canvas ||
+            isMappingMode ||
+            pdfLoading ||
+            currentPage !== totalPages
+        )
+            return;
+
+        const { x, y } = getCanvasCoords(e, canvas);
+        const hitIndex = findVariableAtPosition(x, y, canvas);
+
+        if (hitIndex === null) return;
+
+        canvas.setPointerCapture(e.pointerId);
+        dragStateRef.current = {
+            index: hitIndex,
+            moved: false,
+            startX: x,
+            startY: y,
+            offsetX:
+                x -
+                (variables[hitIndex].x_pct !== undefined
+                    ? variables[hitIndex].x_pct! * canvas.width
+                    : variables[hitIndex].x),
+            offsetY:
+                y -
+                (variables[hitIndex].y_pct !== undefined
+                    ? variables[hitIndex].y_pct! * canvas.height
+                    : variables[hitIndex].y),
+        };
+        setIsDragging(true);
+        setSelectedVariable(hitIndex);
+    };
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = overlayCanvasRef.current;
+        const dragState = dragStateRef.current;
+        if (!canvas || !dragState) return;
+
+        const { x: pointerX, y: pointerY } = getCanvasCoords(e, canvas);
+        const x = Math.max(
+            0,
+            Math.min(canvas.width, pointerX - dragState.offsetX),
+        );
+        const y = Math.max(
+            0,
+            Math.min(canvas.height, pointerY - dragState.offsetY),
+        );
+        const x_pct = x / canvas.width;
+        const y_pct = y / canvas.height;
+
+        // Only start visually dragging once the pointer has moved a couple
+        // pixels, so a plain click doesn't get treated as a (no-op) drag.
+        if (
+            !dragState.moved &&
+            Math.hypot(
+                pointerX - dragState.startX,
+                pointerY - dragState.startY,
+            ) < 3
+        ) {
+            return;
+        }
+        dragState.moved = true;
+
+        setVariables((prev) => {
+            const updated = [...prev];
+            updated[dragState.index] = {
+                ...updated[dragState.index],
+                x,
+                y,
+                x_pct,
+                y_pct,
+            };
+            return updated;
+        });
+    };
+
+    const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = overlayCanvasRef.current;
+        const dragState = dragStateRef.current;
+        if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+            canvas.releasePointerCapture(e.pointerId);
+        }
+
+        if (dragState?.moved) {
+            // Suppress the synthetic click that follows this pointer up.
+            justDraggedRef.current = true;
+        }
+
+        dragStateRef.current = null;
+        setIsDragging(false);
+    };
+
     const addStandardVariable = (name: string) => {
+        if (pdfLoading || currentPage !== totalPages) return;
         const canvas = overlayCanvasRef.current;
         if (!canvas) return;
 
@@ -290,9 +448,11 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
             alignment: 'C',
         };
         setVariables([...variables, newVariable]);
+        setSelectedVariable(variables.length);
     };
 
     const handleSaveMapping = () => {
+        if (pdfLoading || !overlayCanvasRef.current) return;
         if (variables.length === 0) {
             error('Minimal harus ada 1 variabel');
             return;
@@ -300,10 +460,14 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
 
         transform((data) => ({
             ...data,
-            variable_positions: variables,
+            variable_positions: prepareCertificateMapping(
+                variables,
+                overlayCanvasRef.current!.width,
+                overlayCanvasRef.current!.height,
+            ),
         }));
 
-        post(`/templates/${selectedTemplateId}/save-variable-positions`, {
+        post(saveVariablePositions.url(selectedTemplateId), {
             preserveState: true,
             preserveScroll: true,
             onSuccess: () => {
@@ -319,7 +483,7 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                 // Delay lebih lama untuk memastikan reload selesai
                 setTimeout(() => {
                     window.open(
-                        `/templates/${selectedTemplateId}/download-excel-template`,
+                        downloadExcelTemplate.url(selectedTemplateId),
                         '_blank',
                     );
                 }, 1500);
@@ -331,15 +495,6 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
         });
     };
 
-    const handleUpdateVariable = (index: number, field: keyof VariablePosition, value: any) => {
-        const updated = [...variables];
-        updated[index] = {
-            ...updated[index],
-            [field]: value,
-        };
-        setVariables(updated);
-    };
-
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -348,8 +503,6 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
             return;
         }
 
-
-
         info('Sedang memproses sertifikat...');
 
         // Debug: Log form data before submission
@@ -357,7 +510,6 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
             templateSertifId: data.templateSertifId,
             excel_file: data.excel_file?.name,
             show_qr_code: data.show_qr_code,
-            passphrase: data.passphrase ? '***' : null
         });
 
         // Backend flashes a success message, shown automatically by the app layout.
@@ -384,26 +536,46 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                 </div>
 
                 {/* Step Indicator */}
-                <div className="flex items-center justify-center space-x-4 mb-6">
-                    <div className={`flex items-center ${currentStep === 'select' ? 'text-blue-600' : 'text-gray-400'}`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep === 'select' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
+                <div className="mb-6 flex items-center justify-center space-x-4">
+                    <div
+                        className={`flex items-center ${currentStep === 'select' ? 'text-blue-600' : 'text-gray-400'}`}
+                    >
+                        <div
+                            className={`flex h-8 w-8 items-center justify-center rounded-full ${currentStep === 'select' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                        >
                             1
                         </div>
                         <span className="ml-2 font-medium">Pilih Template</span>
                     </div>
                     <ArrowRight className="text-gray-400" />
-                    <div className={`flex items-center ${currentStep === 'mapping' ? 'text-blue-600' : currentStep === 'upload' && selectedTemplate?.has_variables_mapped ? 'text-green-600' : 'text-gray-400'}`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep === 'mapping' ? 'bg-blue-600 text-white' : selectedTemplate?.has_variables_mapped ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>
-                            {selectedTemplate?.has_variables_mapped ? <CheckCircle2 className="h-5 w-5" /> : '2'}
+                    <div
+                        className={`flex items-center ${currentStep === 'mapping' ? 'text-blue-600' : currentStep === 'upload' && selectedTemplate?.has_variables_mapped ? 'text-green-600' : 'text-gray-400'}`}
+                    >
+                        <div
+                            className={`flex h-8 w-8 items-center justify-center rounded-full ${currentStep === 'mapping' ? 'bg-blue-600 text-white' : selectedTemplate?.has_variables_mapped ? 'bg-green-600 text-white' : 'bg-gray-200'}`}
+                        >
+                            {selectedTemplate?.has_variables_mapped ? (
+                                <CheckCircle2 className="h-5 w-5" />
+                            ) : (
+                                '2'
+                            )}
                         </div>
-                        <span className="ml-2 font-medium">Mapping Variabel</span>
+                        <span className="ml-2 font-medium">
+                            Mapping Variabel
+                        </span>
                     </div>
                     <ArrowRight className="text-gray-400" />
-                    <div className={`flex items-center ${currentStep === 'upload' ? 'text-blue-600' : 'text-gray-400'}`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
+                    <div
+                        className={`flex items-center ${currentStep === 'upload' ? 'text-blue-600' : 'text-gray-400'}`}
+                    >
+                        <div
+                            className={`flex h-8 w-8 items-center justify-center rounded-full ${currentStep === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                        >
                             3
                         </div>
-                        <span className="ml-2 font-medium">Upload & Generate</span>
+                        <span className="ml-2 font-medium">
+                            Upload & Generate
+                        </span>
                     </div>
                 </div>
 
@@ -416,7 +588,8 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                 Pilih Template Sertifikat
                             </CardTitle>
                             <CardDescription>
-                                Pilih template yang sudah ditandatangani untuk bulk generation
+                                Pilih template yang sudah ditandatangani untuk
+                                bulk generation
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -432,24 +605,34 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                     <SelectContent>
                                         {templates.length === 0 ? (
                                             <div className="p-4 text-center text-gray-500">
-                                                <p>Tidak ada template yang tersedia.</p>
+                                                <p>
+                                                    Tidak ada template yang
+                                                    tersedia.
+                                                </p>
                                                 <p className="text-sm">
-                                                    Template harus disetujui dan ditandatangani pimpinan terlebih dahulu.
+                                                    Template harus disetujui dan
+                                                    ditandatangani pimpinan
+                                                    terlebih dahulu.
                                                 </p>
                                             </div>
                                         ) : (
                                             templates.map((template) => (
-                                                <SelectItem key={template.id} value={template.id}>
-                                                    <div className="flex items-center justify-between w-full">
-                                                        <span>{template.title}</span>
+                                                <SelectItem
+                                                    key={template.id}
+                                                    value={template.id}
+                                                >
+                                                    <div className="flex w-full items-center justify-between">
+                                                        <span>
+                                                            {template.title}
+                                                        </span>
                                                         {template.has_variables_mapped ? (
-                                                            <Badge className="ml-2 bg-green-100 text-green-800 text-xs">
-                                                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                                            <Badge className="ml-2 bg-green-100 text-xs text-green-800">
+                                                                <CheckCircle2 className="mr-1 h-3 w-3" />
                                                                 Siap
                                                             </Badge>
                                                         ) : (
-                                                            <Badge className="ml-2 bg-yellow-100 text-yellow-800 text-xs">
-                                                                <AlertCircle className="h-3 w-3 mr-1" />
+                                                            <Badge className="ml-2 bg-yellow-100 text-xs text-yellow-800">
+                                                                <AlertCircle className="mr-1 h-3 w-3" />
                                                                 Perlu Mapping
                                                             </Badge>
                                                         )}
@@ -474,45 +657,121 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                     Mapping Variabel
                                 </CardTitle>
                                 <CardDescription>
-                                    Klik pada PDF untuk menambahkan atau mengubah posisi variabel
+                                    Klik pada PDF untuk menambahkan atau
+                                    mengubah posisi variabel
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="mb-3"
+                                    aria-pressed={cleanPreview}
+                                    onClick={() =>
+                                        setCleanPreview((value) => !value)
+                                    }
+                                >
+                                    {cleanPreview
+                                        ? 'Tampilkan panduan'
+                                        : 'Preview bersih'}
+                                </Button>
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                         <div className="flex gap-2">
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                                onClick={() =>
+                                                    setCurrentPage(
+                                                        Math.max(
+                                                            1,
+                                                            currentPage - 1,
+                                                        ),
+                                                    )
+                                                }
                                                 disabled={currentPage === 1}
                                             >
                                                 Sebelumnya
                                             </Button>
                                             <span className="flex items-center px-4">
-                                                Halaman {currentPage} / {totalPages}
+                                                Halaman {currentPage} /{' '}
+                                                {totalPages}
                                             </span>
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                                                disabled={currentPage === totalPages}
+                                                onClick={() =>
+                                                    setCurrentPage(
+                                                        Math.min(
+                                                            totalPages,
+                                                            currentPage + 1,
+                                                        ),
+                                                    )
+                                                }
+                                                disabled={
+                                                    currentPage === totalPages
+                                                }
                                             >
                                                 Selanjutnya
                                             </Button>
                                         </div>
                                     </div>
-                                    <div className="relative border border-gray-300 rounded-lg overflow-auto bg-gray-50">
+                                    {pdfLoading && (
+                                        <p
+                                            role="status"
+                                            className="animate-pulse text-sm text-muted-foreground"
+                                        >
+                                            Memuat preview sertifikat...
+                                        </p>
+                                    )}
+                                    {totalPages > 1 && (
+                                        <p className="text-sm text-muted-foreground">
+                                            Teks variabel dicetak pada halaman
+                                            terakhir.{' '}
+                                            {currentPage !== totalPages && (
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                        setCurrentPage(
+                                                            totalPages,
+                                                        )
+                                                    }
+                                                >
+                                                    Kembali ke halaman mapping
+                                                </Button>
+                                            )}
+                                        </p>
+                                    )}
+                                    <div className="relative overflow-auto rounded-lg border border-gray-300 bg-gray-50">
                                         <div className="relative inline-block">
                                             <canvas
                                                 ref={pdfCanvasRef}
-                                                style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+                                                style={{
+                                                    display: 'block',
+                                                    maxWidth: '100%',
+                                                    height: 'auto',
+                                                }}
                                             />
                                             <canvas
                                                 ref={overlayCanvasRef}
                                                 onClick={handleCanvasClick}
-                                                className="cursor-crosshair absolute top-0 left-0"
-                                                style={{ maxWidth: '100%', height: 'auto' }}
+                                                onPointerDown={
+                                                    handlePointerDown
+                                                }
+                                                onPointerMove={
+                                                    handlePointerMove
+                                                }
+                                                onPointerUp={handlePointerUp}
+                                                onPointerCancel={
+                                                    handlePointerUp
+                                                }
+                                                className={`absolute top-0 left-0 touch-none ${isMappingMode ? 'cursor-crosshair' : isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                                                style={{
+                                                    maxWidth: '100%',
+                                                    height: 'auto',
+                                                }}
                                             />
                                         </div>
                                     </div>
@@ -520,8 +779,8 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                         {isMappingMode
                                             ? `Klik pada PDF untuk menambahkan variabel "${newVariableName}"`
                                             : selectedVariable !== null
-                                                ? `Klik pada PDF untuk memindahkan variabel "${variables[selectedVariable]?.name}"`
-                                                : 'Masukkan nama variabel dan klik "Tambah", lalu klik pada PDF. Atau klik variabel yang sudah ada untuk memindahkannya.'}
+                                              ? `Seret teks "${variables[selectedVariable]?.name}" untuk memindahkannya`
+                                              : 'Masukkan nama variabel dan klik "Tambah", lalu klik pada PDF. Seret teks yang sudah ada untuk memindahkannya.'}
                                     </p>
                                 </div>
                             </CardContent>
@@ -536,16 +795,30 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                     <div className="space-y-2">
                                         <Label>Variabel Standar</Label>
                                         <div className="flex flex-wrap gap-2">
-                                            {['nomor_sertif', 'nama_lengkap', 'tanggal_terbit', 'jabatan', 'departemen'].map((varName) => (
+                                            {[
+                                                'nomor_sertif',
+                                                'nama_lengkap',
+                                                'tanggal_terbit',
+                                                'jabatan',
+                                                'departemen',
+                                            ].map((varName) => (
                                                 <Button
                                                     key={varName}
                                                     variant="outline"
                                                     size="sm"
-                                                    onClick={() => addStandardVariable(varName)}
+                                                    onClick={() =>
+                                                        addStandardVariable(
+                                                            varName,
+                                                        )
+                                                    }
                                                     className="text-xs"
-                                                    disabled={variables.some(v => v.name === varName)}
+                                                    disabled={variables.some(
+                                                        (v) =>
+                                                            v.name === varName,
+                                                    )}
                                                 >
-                                                    + {varName.replace('_', ' ')}
+                                                    +{' '}
+                                                    {varName.replace('_', ' ')}
                                                 </Button>
                                             ))}
                                         </div>
@@ -556,17 +829,26 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                         <div className="flex gap-2">
                                             <Input
                                                 value={newVariableName}
-                                                onChange={(e) => setNewVariableName(e.target.value)}
+                                                onChange={(e) =>
+                                                    setNewVariableName(
+                                                        e.target.value,
+                                                    )
+                                                }
                                                 placeholder="Contoh: nama_lengkap"
                                                 onKeyPress={(e) => {
-                                                    if (e.key === 'Enter' && newVariableName.trim()) {
+                                                    if (
+                                                        e.key === 'Enter' &&
+                                                        newVariableName.trim()
+                                                    ) {
                                                         setIsMappingMode(true);
                                                     }
                                                 }}
                                             />
                                             <Button
                                                 onClick={() => {
-                                                    if (newVariableName.trim()) {
+                                                    if (
+                                                        newVariableName.trim()
+                                                    ) {
                                                         setIsMappingMode(true);
                                                     }
                                                 }}
@@ -578,23 +860,44 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                         </div>
                                     </div>
 
-                                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                                    <div className="max-h-96 space-y-2 overflow-y-auto">
                                         {variables.map((variable, index) => (
                                             <div
                                                 key={index}
-                                                className={`p-3 border rounded ${selectedVariable === index ? 'border-blue-500 bg-blue-50' : ''
-                                                    }`}
+                                                className={`rounded border p-3 ${
+                                                    selectedVariable === index
+                                                        ? 'border-blue-500 bg-blue-50'
+                                                        : ''
+                                                }`}
                                             >
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="font-medium text-sm">{variable.name}</span>
+                                                <div className="mb-2 flex items-center justify-between">
+                                                    <span className="text-sm font-medium">
+                                                        {variable.name}
+                                                    </span>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => {
-                                                            setVariables(variables.filter((_, i) => i !== index));
-                                                            if (selectedVariable === index) {
-                                                                setSelectedVariable(null);
-                                                            }
+                                                            setVariables(
+                                                                variables.filter(
+                                                                    (_, i) =>
+                                                                        i !==
+                                                                        index,
+                                                                ),
+                                                            );
+                                                            setSelectedVariable(
+                                                                (previous) =>
+                                                                    previous ===
+                                                                        null ||
+                                                                    previous ===
+                                                                        index
+                                                                        ? null
+                                                                        : previous >
+                                                                            index
+                                                                          ? previous -
+                                                                            1
+                                                                          : previous,
+                                                            );
                                                         }}
                                                     >
                                                         ×
@@ -602,78 +905,89 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                                 </div>
                                                 <div className="space-y-2">
                                                     <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
-                                                        <div>X: {Math.round(variable.x)}</div>
-                                                        <div>Y: {Math.round(variable.y)}</div>
+                                                        <div>
+                                                            X:{' '}
+                                                            {Math.round(
+                                                                variable.x,
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            Y:{' '}
+                                                            {Math.round(
+                                                                variable.y,
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    <div>
-                                                        <Label className="text-xs">Ukuran Font</Label>
-                                                        <Input
-                                                            type="number"
-                                                            min="8"
-                                                            max="72"
-                                                            value={variable.fontSize || 12}
-                                                            onChange={(e) =>
-                                                                handleUpdateVariable(
-                                                                    index,
-                                                                    'fontSize',
-                                                                    parseInt(e.target.value) || 12
+                                                    {selectedVariable ===
+                                                        index && (
+                                                        <CertificateTextSettings
+                                                            variable={variable}
+                                                            sample={
+                                                                samples[
+                                                                    variable
+                                                                        .name
+                                                                ]
+                                                            }
+                                                            onSampleChange={(
+                                                                value,
+                                                            ) =>
+                                                                setSamples(
+                                                                    (
+                                                                        previous,
+                                                                    ) => ({
+                                                                        ...previous,
+                                                                        [variable.name]:
+                                                                            value,
+                                                                    }),
                                                                 )
                                                             }
-                                                            className="h-8 text-xs"
+                                                            onChange={(patch) =>
+                                                                setVariables(
+                                                                    (
+                                                                        previous,
+                                                                    ) =>
+                                                                        previous.map(
+                                                                            (
+                                                                                item,
+                                                                                itemIndex,
+                                                                            ) =>
+                                                                                itemIndex ===
+                                                                                index
+                                                                                    ? {
+                                                                                          ...item,
+                                                                                          ...patch,
+                                                                                      }
+                                                                                    : item,
+                                                                        ),
+                                                                )
+                                                            }
                                                         />
-                                                    </div>
-                                                    <div>
-                                                        <Label className="text-xs">Jenis Font</Label>
-                                                        <Select
-                                                            value={variable.fontFamily || 'Arial'}
-                                                            onValueChange={(value) =>
-                                                                handleUpdateVariable(index, 'fontFamily', value)
-                                                            }
-                                                        >
-                                                            <SelectTrigger className="h-8 text-xs">
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="Arial">Arial</SelectItem>
-                                                                <SelectItem value="Times">Times</SelectItem>
-                                                                <SelectItem value="Courier">Courier</SelectItem>
-                                                                <SelectItem value="Helvetica">Helvetica</SelectItem>
-                                                                <SelectItem value="Times-Roman">Times Roman</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div>
-                                                        <Label className="text-xs">Alignment</Label>
-                                                        <Select
-                                                            value={variable.alignment || 'C'}
-                                                            onValueChange={(value: 'L' | 'C' | 'R') =>
-                                                                handleUpdateVariable(index, 'alignment', value)
-                                                            }
-                                                        >
-                                                            <SelectTrigger className="h-8 text-xs">
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="L">Kiri</SelectItem>
-                                                                <SelectItem value="C">Tengah</SelectItem>
-                                                                <SelectItem value="R">Kanan</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
+                                                    )}
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
                                                         className="w-full"
-                                                        onClick={() => setSelectedVariable(selectedVariable === index ? null : index)}
+                                                        onClick={() =>
+                                                            setSelectedVariable(
+                                                                selectedVariable ===
+                                                                    index
+                                                                    ? null
+                                                                    : index,
+                                                            )
+                                                        }
                                                     >
-                                                        {selectedVariable === index ? 'Batal Pilih' : 'Pilih untuk Pindahkan'}
+                                                        {selectedVariable ===
+                                                        index
+                                                            ? 'Batal Pilih'
+                                                            : 'Atur teks & posisi'}
                                                     </Button>
                                                 </div>
                                             </div>
                                         ))}
                                         {variables.length === 0 && (
-                                            <p className="text-sm text-gray-500 text-center py-4">
-                                                Belum ada variabel. Tambahkan variabel baru di atas.
+                                            <p className="py-4 text-center text-sm text-gray-500">
+                                                Belum ada variabel. Tambahkan
+                                                variabel baru di atas.
                                             </p>
                                         )}
                                     </div>
@@ -683,7 +997,9 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                             <Button
                                                 onClick={() => {
                                                     window.open(
-                                                        `/templates/${selectedTemplateId}/download-excel-template`,
+                                                        downloadExcelTemplate.url(
+                                                            selectedTemplateId,
+                                                        ),
                                                         '_blank',
                                                     );
                                                 }}
@@ -697,19 +1013,24 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                         <div className="flex gap-2">
                                             <Button
                                                 variant="outline"
-                                                onClick={() => setCurrentStep('select')}
+                                                onClick={() =>
+                                                    setCurrentStep('select')
+                                                }
                                                 className="flex-1"
                                             >
-                                                <ArrowLeft className="h-4 w-4 mr-2" />
+                                                <ArrowLeft className="mr-2 h-4 w-4" />
                                                 Kembali
                                             </Button>
                                             <Button
                                                 onClick={handleSaveMapping}
-                                                disabled={variables.length === 0 || processing}
+                                                disabled={
+                                                    variables.length === 0 ||
+                                                    processing
+                                                }
                                                 className="flex-1 bg-green-600 hover:bg-green-700"
                                             >
                                                 Simpan & Lanjut
-                                                <ArrowRight className="h-4 w-4 ml-2" />
+                                                <ArrowRight className="ml-2 h-4 w-4" />
                                             </Button>
                                         </div>
                                     </div>
@@ -729,11 +1050,15 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                     Upload File Excel
                                 </CardTitle>
                                 <CardDescription>
-                                    Upload file Excel sesuai dengan format template
+                                    Upload file Excel sesuai dengan format
+                                    template
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <form onSubmit={handleSubmit} className="space-y-6">
+                                <form
+                                    onSubmit={handleSubmit}
+                                    className="space-y-6"
+                                >
                                     <div className="space-y-2">
                                         <Label>File Excel (.xlsx/.xls)</Label>
                                         <div className="flex w-full items-center justify-center">
@@ -744,22 +1069,35 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                                     <Upload className="mb-4 h-8 w-8 text-gray-500" />
                                                     <p className="mb-2 text-sm text-gray-500">
-                                                        <span className="font-semibold">Klik untuk upload</span> atau drag and drop
+                                                        <span className="font-semibold">
+                                                            Klik untuk upload
+                                                        </span>{' '}
+                                                        atau drag and drop
                                                     </p>
-                                                    <p className="text-xs text-gray-500">XLSX, XLS (MAX. 10MB)</p>
+                                                    <p className="text-xs text-gray-500">
+                                                        XLSX, XLS (MAX. 10MB)
+                                                    </p>
                                                 </div>
                                                 <input
                                                     id="excel_file"
                                                     type="file"
                                                     className="hidden"
                                                     accept=".xlsx,.xls"
-                                                    onChange={(e) => setData('excel_file', e.target.files?.[0] || null)}
+                                                    onChange={(e) =>
+                                                        setData(
+                                                            'excel_file',
+                                                            e.target
+                                                                .files?.[0] ||
+                                                                null,
+                                                        )
+                                                    }
                                                 />
                                             </label>
                                         </div>
                                         {data.excel_file && (
                                             <p className="text-sm text-green-600">
-                                                File terpilih: {data.excel_file.name}
+                                                File terpilih:{' '}
+                                                {data.excel_file.name}
                                             </p>
                                         )}
                                     </div>
@@ -770,17 +1108,24 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                             <Checkbox
                                                 id="show_qr_code"
                                                 checked={data.show_qr_code}
-                                                onCheckedChange={(checked) => setData('show_qr_code', checked as boolean)}
+                                                onCheckedChange={(checked) =>
+                                                    setData(
+                                                        'show_qr_code',
+                                                        checked as boolean,
+                                                    )
+                                                }
                                             />
                                             <div className="grid gap-1.5 leading-none">
                                                 <label
                                                     htmlFor="show_qr_code"
-                                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                                    className="cursor-pointer text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                                                 >
                                                     Tampilkan QR Code
                                                 </label>
                                                 <p className="text-sm text-muted-foreground">
-                                                    QR code untuk verifikasi sertifikat akan ditambahkan di sertifikat
+                                                    QR code untuk verifikasi
+                                                    sertifikat akan ditambahkan
+                                                    di sertifikat
                                                 </p>
                                             </div>
                                         </div>
@@ -790,10 +1135,16 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                         <Button
                                             type="button"
                                             variant="outline"
-                                            onClick={() => setCurrentStep(selectedTemplate.has_variables_mapped ? 'select' : 'mapping')}
+                                            onClick={() =>
+                                                setCurrentStep(
+                                                    selectedTemplate.has_variables_mapped
+                                                        ? 'select'
+                                                        : 'mapping',
+                                                )
+                                            }
                                             className="flex-1"
                                         >
-                                            <ArrowLeft className="h-4 w-4 mr-2" />
+                                            <ArrowLeft className="mr-2 h-4 w-4" />
                                             Kembali
                                         </Button>
                                         <Button
@@ -801,7 +1152,9 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                             className="flex-1 bg-green-600 hover:bg-green-700"
                                             disabled={processing}
                                         >
-                                            {processing ? 'Generating...' : 'Generate Sertifikat'}
+                                            {processing
+                                                ? 'Generating...'
+                                                : 'Generate Sertifikat'}
                                         </Button>
                                     </div>
                                 </form>
@@ -816,46 +1169,75 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                {selectedTemplate.has_variables_mapped && selectedTemplate.variable_positions && (
-                                    <>
-                                        <div className="rounded-lg bg-green-50 border border-green-200 p-4">
-                                            <div className="flex items-center mb-2">
-                                                <CheckCircle2 className="h-5 w-5 text-green-600 mr-2" />
-                                                <h4 className="font-medium text-green-800">Variabel Template</h4>
+                                {selectedTemplate.has_variables_mapped &&
+                                    selectedTemplate.variable_positions && (
+                                        <>
+                                            <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                                                <div className="mb-2 flex items-center">
+                                                    <CheckCircle2 className="mr-2 h-5 w-5 text-green-600" />
+                                                    <h4 className="font-medium text-green-800">
+                                                        Variabel Template
+                                                    </h4>
+                                                </div>
+                                                <div className="space-y-1 text-sm text-green-700">
+                                                    {selectedTemplate.variable_positions.map(
+                                                        (variable, index) => (
+                                                            <div
+                                                                key={index}
+                                                                className="flex items-center"
+                                                            >
+                                                                <span className="font-medium">
+                                                                    Kolom{' '}
+                                                                    {String.fromCharCode(
+                                                                        65 +
+                                                                            index,
+                                                                    )}
+                                                                    :
+                                                                </span>
+                                                                <span className="ml-2 capitalize">
+                                                                    {variable.name.replace(
+                                                                        /_/g,
+                                                                        ' ',
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        ),
+                                                    )}
+                                                </div>
                                             </div>
-                                            <div className="space-y-1 text-sm text-green-700">
-                                                {selectedTemplate.variable_positions.map((variable, index) => (
-                                                    <div key={index} className="flex items-center">
-                                                        <span className="font-medium">Kolom {String.fromCharCode(65 + index)}:</span>
-                                                        <span className="ml-2 capitalize">{variable.name.replace(/_/g, ' ')}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
 
-                                        <Button
-                                            onClick={() => {
-                                                window.open(
-                                                    `/templates/${selectedTemplateId}/download-excel-template`,
-                                                    '_blank',
-                                                );
-                                            }}
-                                            variant="outline"
-                                            className="w-full"
-                                        >
-                                            <Download className="mr-2 h-4 w-4" />
-                                            Download Template Excel
-                                        </Button>
-                                    </>
-                                )}
+                                            <Button
+                                                onClick={() => {
+                                                    window.open(
+                                                        downloadExcelTemplate.url(
+                                                            selectedTemplateId,
+                                                        ),
+                                                        '_blank',
+                                                    );
+                                                }}
+                                                variant="outline"
+                                                className="w-full"
+                                            >
+                                                <Download className="mr-2 h-4 w-4" />
+                                                Download Template Excel
+                                            </Button>
+                                        </>
+                                    )}
 
                                 <div className="rounded-lg bg-gray-50 p-4">
-                                    <h4 className="mb-2 font-medium">Catatan Penting:</h4>
+                                    <h4 className="mb-2 font-medium">
+                                        Catatan Penting:
+                                    </h4>
                                     <ul className="space-y-1 text-sm text-gray-600">
                                         <li>• Nomor sertifikat harus unik</li>
                                         <li>• Format tanggal: YYYY-MM-DD</li>
-                                        <li>• Baris pertama akan diabaikan (header)</li>
-                                        <li>• Urutan kolom harus sesuai variabel</li>
+                                        <li>
+                                            • Baris pertama akan diabaikan
+                                            (header)
+                                        </li>
+                                        <li>
+                                            • Urutan kolom harus sesuai variabel
+                                        </li>
                                     </ul>
                                 </div>
                             </CardContent>
@@ -866,4 +1248,3 @@ export default function CertificatesBulkCreateWizard({ templates, user }: Props)
         </AppLayout>
     );
 }
-

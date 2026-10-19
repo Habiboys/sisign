@@ -14,10 +14,10 @@ use App\Services\SignatureService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use Maatwebsite\Excel\Concerns\Import;
 use Maatwebsite\Excel\Facades\Excel;
 
 class SertifikatController extends Controller
@@ -246,7 +246,7 @@ class SertifikatController extends Controller
         $file = $request->file('excel_file');
 
         // Baca file Excel menggunakan maatwebsite/excel
-        $rows = Excel::toArray(new \stdClass, $file);
+        $rows = Excel::toArray(new class implements Import {}, $file);
         $rows = $rows[0]; // Ambil sheet pertama
 
         $errors = [];
@@ -480,7 +480,7 @@ class SertifikatController extends Controller
 
         try {
             $file = $request->file('excel_file');
-            $rows = Excel::toArray(new \stdClass, $file);
+            $rows = Excel::toArray(new class implements Import {}, $file);
             $rows = $rows[0];
 
             Log::info('Excel data parsed', ['total_rows' => count($rows)]);

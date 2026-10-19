@@ -339,7 +339,7 @@ class CertificateService
             Log::info('Loading signed template PDF with FPDI-TCPDF for bulk generation (supports Object Streams)');
 
             // Gunakan FPDI-TCPDF yang bisa handle Object Streams
-            $pdf = new FpdiTcpdf;
+            $pdf = new CertificatePdf;
             $pdf->setPrintHeader(false);
             $pdf->setPrintFooter(false);
             // Nonaktifkan auto page break untuk mencegah text membuat halaman baru
@@ -404,7 +404,7 @@ class CertificateService
                 if ($convertedPath && file_exists($convertedPath)) {
                     // Retry dengan PDF yang sudah di-convert
                     try {
-                        $pdf = new FpdiTcpdf;
+                        $pdf = new CertificatePdf;
                         $pdf->setPrintHeader(false);
                         $pdf->setPrintFooter(false);
                         // Nonaktifkan auto page break untuk mencegah text membuat halaman baru
@@ -610,7 +610,7 @@ class CertificateService
                         // FIX: Adjust coordinates for A4 Vertical/Portrait
                         // User report: "hasilnya agak melenceng ke bawah dan geser ke kanan"
                         // Correction: Shift Up (decrease Y) and Left (decrease X)
-                        if ($pageSize['width'] < $pageSize['height']) {
+                        if (($variable['layoutVersion'] ?? 1) < 2 && $pageSize['width'] < $pageSize['height']) {
                             // Asumsi ini A4 Portrait
                             // User report: "naikin satu geser ke kiri 1" -> Jadi -4, -4
                             $pdfX -= 4; // Geser kiri 4pt
@@ -652,11 +652,12 @@ class CertificateService
                     }
 
                     // Ensure Y is within bounds
-                    $pdfY = max(0, min($pdfY, $pageSize['height'] - 5));
+                    $pdfY = max(0, min($pdfY, $pageSize['height'] - ((int) ($variable['layoutVersion'] ?? 1) === 2 ? 0 : 5)));
 
                     // Set font dengan font family yang dipilih (auto-detect TCPDF atau FPDF)
-                    $this->setFontForPDF($pdf, $fontFamily, 'B', $fontSize);
-                    $pdf->SetTextColor(0, 0, 0);
+                    $this->setFontForPDF($pdf, $fontFamily, str_replace('N', '', $variable['fontStyle'] ?? 'B'), $fontSize);
+                    $color = $variable['textColor'] ?? '#000000';
+                    $pdf->SetTextColor(hexdec(substr($color, 1, 2)), hexdec(substr($color, 3, 2)), hexdec(substr($color, 5, 2)));
 
                     // Calculate position based on alignment
                     $textWidth = $pdf->GetStringWidth($value);
@@ -668,9 +669,26 @@ class CertificateService
                         $xPos = $pdfX - $textWidth;
                     }
 
+                    if ($pdf instanceof FpdiTcpdf) {
+                        $pdf->setAlpha((float) ($variable['opacity'] ?? 1));
+                    }
+
                     // Add text - timpa di atas PDF
-                    $pdf->SetXY($xPos, $pdfY);
-                    $pdf->Cell($textWidth + 10, 8, $value, 0, 0, $alignment);
+                    if ((int) ($variable['layoutVersion'] ?? 1) === 2 && $pdf instanceof FpdiTcpdf) {
+                        $pdf->setCellPaddings(0, 0, 0, 0);
+                        if (($variable['colorMode'] ?? 'solid') === 'gradient' && $pdf instanceof CertificatePdf) {
+                            $pdf->drawGradientText($xPos, $pdfY, (string) $value, $variable['gradientColors'] ?? ['#2563eb', '#9333ea'], (float) ($variable['gradientAngle'] ?? 0));
+                        } else {
+                            $pdf->Text($xPos, $pdfY, $value, calign: 'L');
+                        }
+                    } else {
+                        $pdf->SetXY($xPos, $pdfY);
+                        $pdf->Cell($textWidth + 10, 8, $value, 0, 0, $alignment);
+                    }
+
+                    if ($pdf instanceof FpdiTcpdf) {
+                        $pdf->setAlpha(1);
+                    }
 
                     Log::info('Text overlay added', [
                         'varName' => $varName,
@@ -734,6 +752,9 @@ class CertificateService
             'Times' => 'times',
             'Times-Roman' => 'times',
             'Courier' => 'courier',
+            'DejaVu Sans' => 'dejavusans',
+            'DejaVu Serif' => 'dejavuserif',
+            'DejaVu Sans Mono' => 'dejavusansmono',
         ];
 
         return $fontMap[$fontFamily] ?? 'helvetica';

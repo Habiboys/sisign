@@ -141,3 +141,88 @@
         @apply bg-background text-foreground;
     }
 }
+
+@font-face {
+    font-family: 'DejaVu Sans';
+    src: url('../fonts/dejavusans.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans';
+    src: url('../fonts/dejavusansb.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans';
+    src: url('../fonts/dejavusansi.ttf') format('truetype');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans';
+    src: url('../fonts/dejavusansbi.ttf') format('truetype');
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Serif';
+    src: url('../fonts/dejavuserif.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Serif';
+    src: url('../fonts/dejavuserifb.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Serif';
+    src: url('../fonts/dejavuserifi.ttf') format('truetype');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Serif';
+    src: url('../fonts/dejavuserifbi.ttf') format('truetype');
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans Mono';
+    src: url('../fonts/dejavusansmono.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans Mono';
+    src: url('../fonts/dejavusansmonob.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans Mono';
+    src: url('../fonts/dejavusansmonoi.ttf') format('truetype');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans Mono';
+    src: url('../fonts/dejavusansmonobi.ttf') format('truetype');
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+}
