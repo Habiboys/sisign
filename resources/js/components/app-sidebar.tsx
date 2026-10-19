@@ -10,65 +10,31 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { type NavItem } from '@/types';
+import { index as certificatesIndex } from '@/routes/certificates';
+import { index as templatesIndex } from '@/routes/templates';
+import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import {
-    Award,
-    FileCheck,
-    FileText,
-    LayoutGrid,
-    Settings,
-    Users
-} from 'lucide-react';
+import { Award, FileCheck } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const getMainNavItems = (userRole: string): NavItem[] => {
-    const baseItems: NavItem[] = [
-        {
-            title: 'Dashboard',
-            href: '/dashboard',
-            icon: LayoutGrid,
-        },
-        {
-            title: 'Dokumen',
-            href: '/documents',
-            icon: FileText,
-        },
-    ];
+    const baseItems: NavItem[] = [];
 
     // Only show template and certificate menus for admin and pimpinan
     if (userRole !== 'pengaju') {
         baseItems.push(
             {
                 title: 'Template Sertifikat',
-                href: '/templates',
+                href: templatesIndex(),
                 icon: FileCheck,
             },
             {
                 title: 'Sertifikat',
-                href: '/certificates',
+                href: certificatesIndex(),
                 icon: Award,
             },
         );
     }
-
-
-
-    // Only show user management for admin
-    if (userRole === 'admin') {
-        baseItems.push({
-            title: 'Users',
-            href: '/users',
-            icon: Users,
-        });
-    }
-
-    // Add Settings link for all users
-    baseItems.push({
-        title: 'Settings',
-        href: '/settings/profile',
-        icon: Settings,
-    });
 
     return baseItems;
 };
@@ -76,8 +42,8 @@ const getMainNavItems = (userRole: string): NavItem[] => {
 const footerNavItems: NavItem[] = [];
 
 export function AppSidebar() {
-    const { auth } = usePage().props as any;
-    const userRole = auth?.user?.role || 'admin';
+    const { auth } = usePage<SharedData>().props;
+    const userRole = String(auth.user.role ?? 'pengaju');
     const mainNavItems = getMainNavItems(userRole);
 
     return (
@@ -86,7 +52,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href="/dashboard" prefetch>
+                            <Link href={certificatesIndex()} prefetch>
                                 <AppLogo />
                             </Link>
                         </SidebarMenuButton>

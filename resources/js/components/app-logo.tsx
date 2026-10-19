@@ -10,10 +10,10 @@ export default function AppLogo() {
             </div>
             <div className="ml-2 grid flex-1 text-left text-sm">
                 <span className="mb-0.5 truncate leading-tight font-semibold">
-                    SISIGN
+                    DTI Sertifikat
                 </span>
                 <span className="truncate text-xs text-sidebar-foreground/70">
-                    Sistem Informasi Tanda Tangan Digital
+                    Cetak dan Kirim Sertifikat Massal
                 </span>
             </div>
         </>
