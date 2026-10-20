@@ -1,12 +1,5 @@
 import AlertModal from '@/components/ui/alert-modal';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-    InputOTP,
-    InputOTPGroup,
-    InputOTPSlot,
-} from '@/components/ui/input-otp';
-import { Label } from '@/components/ui/label';
 import {
     Dialog,
     DialogContent,
@@ -15,6 +8,13 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import {
+    InputOTP,
+    InputOTPGroup,
+    InputOTPSlot,
+} from '@/components/ui/input-otp';
+import { Label } from '@/components/ui/label';
 import { useModal } from '@/hooks/use-modal';
 import { useToast } from '@/hooks/use-toast';
 import { type SharedData } from '@/types';
@@ -86,8 +86,20 @@ async function generateQrCodeWithLogo(
                 ctx.fillStyle = '#FFFFFF';
                 ctx.beginPath();
                 ctx.moveTo(bgX + radius, bgY);
-                ctx.arcTo(bgX + bgSize, bgY, bgX + bgSize, bgY + bgSize, radius);
-                ctx.arcTo(bgX + bgSize, bgY + bgSize, bgX, bgY + bgSize, radius);
+                ctx.arcTo(
+                    bgX + bgSize,
+                    bgY,
+                    bgX + bgSize,
+                    bgY + bgSize,
+                    radius,
+                );
+                ctx.arcTo(
+                    bgX + bgSize,
+                    bgY + bgSize,
+                    bgX,
+                    bgY + bgSize,
+                    radius,
+                );
                 ctx.arcTo(bgX, bgY + bgSize, bgX, bgY, radius);
                 ctx.arcTo(bgX, bgY, bgX + bgSize, bgY, radius);
                 ctx.closePath();
@@ -128,6 +140,7 @@ export default function PDFCanvasViewer({
     generateQRCode,
 }: PDFCanvasViewerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const stampInputRef = useRef<HTMLInputElement>(null);
     const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
@@ -318,6 +331,7 @@ export default function PDFCanvasViewer({
     const handleStampUpload = useCallback(
         (event: React.ChangeEvent<HTMLInputElement>) => {
             const file = event.target.files?.[0];
+            event.target.value = '';
             if (!file) return;
 
             // Validate file type
@@ -342,6 +356,7 @@ export default function PDFCanvasViewer({
                 setStampImage(result);
                 setStampPosition({ x: 100, y: 100 }); // Default position
                 setDrawingMode('stamp');
+                setFlowStep('sign');
             };
             reader.readAsDataURL(file);
         },
@@ -492,7 +507,10 @@ export default function PDFCanvasViewer({
         try {
             const baseUrl = window.location.origin;
             const qrCodeData = `${baseUrl}/verify-document/${documentId}`;
-            const qrCodeImageData = await generateQrCodeWithLogo(qrCodeData, 240);
+            const qrCodeImageData = await generateQrCodeWithLogo(
+                qrCodeData,
+                240,
+            );
 
             saveCanvasContent();
             setBarcodeData(qrCodeImageData);
@@ -506,8 +524,6 @@ export default function PDFCanvasViewer({
             error('Gagal membuat barcode verifikasi.');
         }
     }, [documentId, saveCanvasContent, error]);
-
-
 
     const loadPDF = useCallback(async () => {
         try {
@@ -577,7 +593,9 @@ export default function PDFCanvasViewer({
         }
 
         if (!hasContent) {
-            info('Silakan buat tanda tangan atau gunakan stempel terlebih dahulu.');
+            info(
+                'Silakan buat tanda tangan atau gunakan stempel terlebih dahulu.',
+            );
             return;
         }
 
@@ -648,7 +666,9 @@ export default function PDFCanvasViewer({
                             pngError,
                             jpegError,
                         });
-                        info('Format gambar stempel tidak didukung. Gunakan PNG atau JPG.');
+                        info(
+                            'Format gambar stempel tidak didukung. Gunakan PNG atau JPG.',
+                        );
                         return;
                     }
                 }
@@ -673,7 +693,8 @@ export default function PDFCanvasViewer({
 
             // Embed QR code if exists (only for documents, templates are handled by backend)
             // Use generateQRCode prop if provided, otherwise fallback to !isTemplate
-            const shouldGenerateQR = generateQRCode !== undefined ? generateQRCode : !isTemplate;
+            const shouldGenerateQR =
+                generateQRCode !== undefined ? generateQRCode : !isTemplate;
 
             // When the user placed the barcode themselves (barcode-only mode),
             // the QR is already the signature stamp - don't add a duplicate
@@ -773,7 +794,17 @@ export default function PDFCanvasViewer({
         } finally {
             setIsProcessing(false);
         }
-    }, [onSave, confirmPin, currentPage, pdfUrl, clearCanvas, barcodeData, generateQRCode, documentId, isTemplate]);
+    }, [
+        onSave,
+        confirmPin,
+        currentPage,
+        pdfUrl,
+        clearCanvas,
+        barcodeData,
+        generateQRCode,
+        documentId,
+        isTemplate,
+    ]);
 
     useEffect(() => {
         loadPDF();
@@ -848,6 +879,15 @@ export default function PDFCanvasViewer({
 
     return (
         <div className="space-y-4">
+            <input
+                ref={stampInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleStampUpload}
+                className="hidden"
+                aria-label="Pilih gambar tanda tangan atau stempel"
+                disabled={!canEdit}
+            />
             {canEdit && (
                 <div className="flex items-center justify-center gap-1 py-1 sm:gap-2">
                     {steps.map((step, idx) => {
@@ -908,10 +948,11 @@ export default function PDFCanvasViewer({
                     {canEdit && (
                         <canvas
                             ref={canvasRef}
-                            className={`absolute inset-0 rounded-lg ${drawingMode === 'stamp'
-                                ? 'cursor-move'
-                                : 'cursor-crosshair'
-                                }`}
+                            className={`absolute inset-0 rounded-lg ${
+                                drawingMode === 'stamp'
+                                    ? 'cursor-move'
+                                    : 'cursor-crosshair'
+                            }`}
                             style={{
                                 maxWidth: '100%',
                                 height: 'auto',
@@ -969,8 +1010,8 @@ export default function PDFCanvasViewer({
                                             Tanda Tangan Tersimpan
                                         </span>
                                         <span className="mt-0.5 block text-xs text-gray-500">
-                                            Pakai gambar TTD dari profil Anda
-                                            — paling cepat
+                                            Pakai gambar TTD dari profil Anda —
+                                            paling cepat
                                         </span>
                                     </span>
                                 </button>
@@ -1008,34 +1049,30 @@ export default function PDFCanvasViewer({
                                             Barcode / QR Verifikasi
                                         </span>
                                         <span className="mt-0.5 block text-xs text-gray-500">
-                                            Cukup taruh QR, tanpa tanda
-                                            tangan tulisan
+                                            Cukup taruh QR, tanpa tanda tangan
+                                            tulisan
                                         </span>
                                     </span>
                                 </button>
-                                {auth.user.signature_image && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            document
-                                                .getElementById('stamp-upload')
-                                                ?.click();
-                                        }}
-                                        className="group flex items-start gap-3 rounded-xl border-2 border-amber-200 bg-amber-50/60 p-4 text-left transition-all hover:border-amber-400 hover:bg-amber-50 hover:shadow-md active:scale-[0.98]"
-                                    >
-                                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 group-hover:bg-amber-200">
-                                            <Image className="h-5 w-5" />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        stampInputRef.current?.click();
+                                    }}
+                                    className="group flex items-start gap-3 rounded-xl border-2 border-amber-200 bg-amber-50/60 p-4 text-left transition-all hover:border-amber-400 hover:bg-amber-50 hover:shadow-md active:scale-[0.98]"
+                                >
+                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 group-hover:bg-amber-200">
+                                        <Image className="h-5 w-5" />
+                                    </span>
+                                    <span>
+                                        <span className="block text-sm font-semibold text-gray-900">
+                                            Upload Stempel / Gambar
                                         </span>
-                                        <span>
-                                            <span className="block text-sm font-semibold text-gray-900">
-                                                Upload Stempel / Gambar
-                                            </span>
-                                            <span className="mt-0.5 block text-xs text-gray-500">
-                                                Stempel resmi atau gambar lain
-                                            </span>
+                                        <span className="mt-0.5 block text-xs text-gray-500">
+                                            Stempel resmi atau gambar lain
                                         </span>
-                                    </button>
-                                )}
+                                    </span>
+                                </button>
                             </div>
                         </div>
                     )}
@@ -1047,8 +1084,7 @@ export default function PDFCanvasViewer({
                                 <PenTool className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
                                 <div>
                                     <p className="text-sm font-semibold text-gray-800">
-                                        Gambar tanda tangan di area PDF di
-                                        atas
+                                        Gambar tanda tangan di area PDF di atas
                                     </p>
                                     <p className="mt-0.5 text-xs text-gray-500">
                                         Anda bisa menggambar beberapa goresan
@@ -1092,7 +1128,9 @@ export default function PDFCanvasViewer({
                                     type="button"
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => setShowAdvancedTools((v) => !v)}
+                                    onClick={() =>
+                                        setShowAdvancedTools((v) => !v)
+                                    }
                                     className="text-xs text-gray-500 sm:text-sm"
                                 >
                                     {showAdvancedTools ? (
@@ -1146,10 +1184,11 @@ export default function PDFCanvasViewer({
                                             : 'outline'
                                     }
                                     size="sm"
-                                    className={`px-2 text-xs sm:px-3 sm:text-sm ${drawingMode === 'stamp'
-                                        ? 'bg-blue-600 text-white'
-                                        : ''
-                                        }`}
+                                    className={`px-2 text-xs sm:px-3 sm:text-sm ${
+                                        drawingMode === 'stamp'
+                                            ? 'bg-blue-600 text-white'
+                                            : ''
+                                    }`}
                                     onClick={() =>
                                         stampImage && setDrawingMode('stamp')
                                     }
@@ -1162,25 +1201,18 @@ export default function PDFCanvasViewer({
                                             : 'Stempel'}
                                     </span>
                                     <span className="sm:hidden">
-                                        {drawingMode === 'stamp' ? 'Stempel' : 'ST'}
+                                        {drawingMode === 'stamp'
+                                            ? 'Stempel'
+                                            : 'ST'}
                                     </span>
                                 </Button>
 
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={handleStampUpload}
-                                    className="hidden"
-                                    id="stamp-upload"
-                                />
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     className="px-2 text-xs sm:px-3 sm:text-sm"
                                     onClick={() =>
-                                        document
-                                            .getElementById('stamp-upload')
-                                            ?.click()
+                                        stampInputRef.current?.click()
                                     }
                                 >
                                     <Image className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
@@ -1210,7 +1242,9 @@ export default function PDFCanvasViewer({
                                     htmlFor="penSize"
                                     className="text-xs font-medium sm:text-sm"
                                 >
-                                    <span className="hidden sm:inline">Size:</span>
+                                    <span className="hidden sm:inline">
+                                        Size:
+                                    </span>
                                     <span className="sm:hidden">S:</span>
                                 </Label>
                                 <Input
@@ -1234,14 +1268,18 @@ export default function PDFCanvasViewer({
                                     htmlFor="penColor"
                                     className="text-xs font-medium sm:text-sm"
                                 >
-                                    <span className="hidden sm:inline">Color:</span>
+                                    <span className="hidden sm:inline">
+                                        Color:
+                                    </span>
                                     <span className="sm:hidden">C:</span>
                                 </Label>
                                 <Input
                                     id="penColor"
                                     type="color"
                                     value={penColor}
-                                    onChange={(e) => setPenColor(e.target.value)}
+                                    onChange={(e) =>
+                                        setPenColor(e.target.value)
+                                    }
                                     className="h-6 w-8 rounded border border-gray-300 p-1 sm:h-8 sm:w-12"
                                 />
                             </div>
@@ -1257,7 +1295,9 @@ export default function PDFCanvasViewer({
                                             <span className="hidden sm:inline">
                                                 Size:
                                             </span>
-                                            <span className="sm:hidden">S:</span>
+                                            <span className="sm:hidden">
+                                                S:
+                                            </span>
                                         </Label>
                                         <Input
                                             id="stampSize"
@@ -1267,7 +1307,9 @@ export default function PDFCanvasViewer({
                                             step="10"
                                             value={stampSize}
                                             onChange={(e) =>
-                                                setStampSize(Number(e.target.value))
+                                                setStampSize(
+                                                    Number(e.target.value),
+                                                )
                                             }
                                             className="w-16 sm:w-24"
                                         />
@@ -1321,7 +1363,7 @@ export default function PDFCanvasViewer({
 
                     {/* STEP 'pin': only shown once a signature has been drawn/placed */}
                     {flowStep === 'pin' && (
-                        <div className="sticky bottom-0 z-10 -mx-2 space-y-3 rounded-t-lg border-t-2 border-green-100 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:relative sm:mx-0 sm:rounded-xl sm:border sm:border-green-200 sm:bg-green-50/40 sm:shadow-none sm:p-4">
+                        <div className="sticky bottom-0 z-10 -mx-2 space-y-3 rounded-t-lg border-t-2 border-green-100 bg-white p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:relative sm:mx-0 sm:rounded-xl sm:border sm:border-green-200 sm:bg-green-50/40 sm:p-4 sm:shadow-none">
                             <div className="flex items-start gap-2">
                                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700">
                                     <Check className="h-4 w-4" />
@@ -1332,8 +1374,8 @@ export default function PDFCanvasViewer({
                                     </p>
                                     <p className="mt-0.5 text-xs text-gray-500">
                                         Tekan tombol di bawah untuk membuka
-                                        kotak konfirmasi PIN dan
-                                        menyelesaikan proses.
+                                        kotak konfirmasi PIN dan menyelesaikan
+                                        proses.
                                     </p>
                                 </div>
                             </div>
@@ -1426,9 +1468,8 @@ export default function PDFCanvasViewer({
                             Konfirmasi Tanda Tangan
                         </DialogTitle>
                         <DialogDescription className="text-center">
-                            Masukkan PIN 6 digit Anda untuk menyelesaikan
-                            tanda tangan {isTemplate ? 'template' : 'dokumen'}{' '}
-                            ini.
+                            Masukkan PIN 6 digit Anda untuk menyelesaikan tanda
+                            tangan {isTemplate ? 'template' : 'dokumen'} ini.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1496,6 +1537,6 @@ export default function PDFCanvasViewer({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div >
+        </div>
     );
 }
