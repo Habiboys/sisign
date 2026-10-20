@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\SendSingleCertificateEmailJob;
+use App\Mail\CertificateEmail;
 use App\Models\CertificateRecipient;
 use App\Models\Sertifikat;
 use App\Models\TemplateSertif;
@@ -174,6 +175,7 @@ class SertifikatController extends Controller
         });
 
         return Inertia::render('Certificates/Index', [
+            'emailDefaults' => ['message' => CertificateEmail::DEFAULT_MESSAGE],
             'sertifikats' => $sertifikats,
             'user' => Auth::user(),
             'search' => $search,
@@ -562,6 +564,13 @@ class SertifikatController extends Controller
 
     public function sendCertificateEmails(Request $request)
     {
+        abort_unless(in_array($request->user()->role, ['admin', 'pimpinan'], true), 403);
+
+        $request->validate([
+            'email_subject' => ['nullable', 'string', 'max:255', 'not_regex:/[\r\n]/'],
+            'email_message' => ['nullable', 'string', 'max:10000'],
+            'select_all' => ['sometimes', 'boolean'],
+        ]);
         // Support two modes: specific IDs or select_all with filters
         if ($request->has('select_all') && $request->select_all) {
             // Select all mode: use filters to get IDs
@@ -602,12 +611,13 @@ class SertifikatController extends Controller
             // Create batch of individual email jobs
             $jobs = [];
             foreach ($certificateIds as $certId) {
-                $jobs[] = new SendSingleCertificateEmailJob($certId, Auth::id());
+                $jobs[] = new SendSingleCertificateEmailJob($certId, Auth::id(), $request->input('email_subject'), $request->input('email_message'));
             }
 
             $batch = Bus::batch($jobs)
                 ->name('Send Certificate Emails')
                 ->onQueue('emails')
+                ->allowFailures()
                 ->dispatch();
 
             Log::info('Email batch dispatched', [
@@ -666,13 +676,15 @@ class SertifikatController extends Controller
             $failedJobDetails = $failedCertificates->toArray();
         }
 
+        $processedJobs = min($batch->totalJobs, $batch->processedJobs() + $batch->failedJobs);
+
         return response()->json([
             'id' => $batch->id,
-            'progress' => $batch->progress(),
-            'finished' => $batch->finished(),
+            'progress' => $batch->totalJobs > 0 ? (int) round($processedJobs / $batch->totalJobs * 100) : 100,
+            'finished' => $batch->finished() || $processedJobs >= $batch->totalJobs,
             'cancelled' => $batch->cancelled(),
             'failedJobs' => $batch->failedJobs,
-            'processedJobs' => $batch->processedJobs(),
+            'processedJobs' => $processedJobs,
             'totalJobs' => $batch->totalJobs,
             'failedJobDetails' => $failedJobDetails,
         ]);

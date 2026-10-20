@@ -87,7 +87,7 @@
     <div class="content">
         <h2>Selamat {{ $recipientName ?? ($recipient->name ?? 'Penerima') }}!</h2>
 
-        <p>Anda telah menerima sertifikat digital dengan detail sebagai berikut:</p>
+        <p style="white-space: pre-line">{{ $emailMessage }}</p>
 
         <div class="certificate-info">
             <div class="info-row">
@@ -112,9 +112,6 @@
             </div>
         </div>
 
-        <p><strong>Sertifikat digital Anda terlampir dalam email ini.</strong> File PDF dapat Anda download dan simpan untuk keperluan verifikasi atau pencetakan.</p>
-
-        <p>Jika Anda memiliki pertanyaan atau memerlukan bantuan, silakan hubungi administrator sistem.</p>
 
         <div class="footer">
             <p>Email ini dikirim secara otomatis oleh sistem SiSign Digital Certificate</p>
