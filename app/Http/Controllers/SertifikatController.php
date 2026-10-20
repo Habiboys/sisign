@@ -259,12 +259,13 @@ class SertifikatController extends Controller
                 continue;
             } // Skip header
 
-            $nomorSertif = $row[0] ?? null;
+            $row = $this->excelTemplateService->normalizeCertificateNumberColumn($rows[0] ?? [], $row, []);
+            $nomorSertif = trim((string) ($row[0] ?? ''));
             $userEmail = $row[1] ?? null;
             $issuedAt = $row[2] ?? now()->format('Y-m-d');
 
-            if (! $nomorSertif || ! $userEmail) {
-                $errors[] = 'Baris '.($index + 1).': Nomor sertifikat dan email wajib diisi';
+            if (! $userEmail) {
+                $errors[] = 'Baris '.($index + 1).': Email wajib diisi';
 
                 continue;
             }
@@ -314,7 +315,7 @@ class SertifikatController extends Controller
             'templateSertifId' => 'required|exists:template_sertif,id',
             'recipients' => 'required|array|min:1',
             'recipients.*.userId' => 'required|exists:users,id',
-            'recipients.*.nomor_sertif' => 'required|string|unique:sertifikat,nomor_sertif',
+            'recipients.*.nomor_sertif' => 'nullable|string|max:100|unique:sertifikat,nomor_sertif',
             'recipients.*.issuedAt' => 'nullable|date',
         ]);
 
@@ -509,6 +510,7 @@ class SertifikatController extends Controller
             Log::info('Final excel data for processing', ['excelData' => $excelData]);
 
             $result = $this->certificateService->generateBulkCertificatesFromExcel([
+                'excelHeaders' => $rows[0] ?? [],
                 'templateSertifId' => $request->templateSertifId,
                 'excelData' => $excelData,
                 'passphrase' => $request->passphrase,

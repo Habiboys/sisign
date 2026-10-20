@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Sertifikat extends Model
 {
@@ -16,6 +17,19 @@ class Sertifikat extends Model
     use HasFactory, HasUuids, SoftDeletes;
 
     protected $table = 'sertifikat';
+
+    protected static function booted(): void
+    {
+        static::creating(function (Sertifikat $certificate): void {
+            $number = trim((string) $certificate->nomor_sertif);
+            $certificate->nomor_sertif = $number !== '' ? $number : self::generateCertificateNumber();
+        });
+    }
+
+    public static function generateCertificateNumber(): string
+    {
+        return 'CERT-'.Str::ulid();
+    }
 
     protected $fillable = [
         'templateSertifId',

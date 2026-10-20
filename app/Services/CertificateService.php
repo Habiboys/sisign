@@ -45,7 +45,7 @@ class CertificateService
             try {
                 $sertifikat = Sertifikat::create([
                     'templateSertifId' => $template->id,
-                    'nomor_sertif' => $recipient['nomor_sertif'],
+                    'nomor_sertif' => $recipient['nomor_sertif'] ?? null,
                 ]);
 
                 CertificateRecipient::create([
@@ -103,6 +103,9 @@ class CertificateService
 
         $jobs = [];
         foreach ($excelData as $index => $row) {
+            if (! empty($data['excelHeaders'])) {
+                $row = app(ExcelTemplateService::class)->normalizeCertificateNumberColumn($data['excelHeaders'], $row, $template->variable_positions ?? []);
+            }
             $jobs[] = new GenerateBulkCertificatesJob($template, $row, $userId, $passphrase, $showQrCode);
         }
 
@@ -155,14 +158,7 @@ class CertificateService
                 $nomorSertif = $row[$nomorSertifIndex] ?? null;
             } elseif (! $hasNomorSertifInVariables && count($row) > count($variablePositions)) {
                 // Ambil dari kolom akhir (jika ditambahkan otomatis)
-                // Nomor sertifikat di kolom sebelum email (jika email juga ditambahkan otomatis)
-                $autoColumnsCount = 0;
-                if (! $hasEmailInVariables) {
-                    $autoColumnsCount = 2; // nomor_sertif + email
-                } else {
-                    $autoColumnsCount = 1; // hanya nomor_sertif
-                }
-                $nomorSertifIndex = count($variablePositions) + ($autoColumnsCount - 2);
+                $nomorSertifIndex = count($variablePositions);
                 $nomorSertif = $row[$nomorSertifIndex] ?? null;
             }
 
@@ -172,13 +168,13 @@ class CertificateService
                 $email = $row[$emailIndex] ?? null;
             } elseif (! $hasEmailInVariables && count($row) > count($variablePositions)) {
                 // Ambil dari kolom terakhir (jika ditambahkan otomatis)
-                $emailIndex = count($row) - 1;
+                $emailIndex = empty($variablePositions) ? 1 : count($row) - 1;
                 $email = $row[$emailIndex] ?? null;
             }
 
-            // Validasi: Nomor sertifikat WAJIB
-            if (! $nomorSertif || trim($nomorSertif) === '') {
-                throw new Exception('Nomor sertifikat wajib diisi');
+            $nomorSertif = trim((string) $nomorSertif);
+            if ($nomorSertif === '') {
+                $nomorSertif = Sertifikat::generateCertificateNumber();
             }
 
             // Cek duplikasi nomor sertifikat

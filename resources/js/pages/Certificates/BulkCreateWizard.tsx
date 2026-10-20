@@ -1229,7 +1229,7 @@ export default function CertificatesBulkCreateWizard({
                                         Catatan Penting:
                                     </h4>
                                     <ul className="space-y-1 text-sm text-gray-600">
-                                        <li>• Nomor sertifikat harus unik</li>
+                                        <li>• Nomor sertifikat opsional. Kosongkan atau hapus kolomnya untuk nomor otomatis. Nomor manual harus unik.</li>
                                         <li>• Format tanggal: YYYY-MM-DD</li>
                                         <li>
                                             • Baris pertama akan diabaikan

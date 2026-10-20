@@ -405,7 +405,7 @@ export default function CertificatesBulkCreate({ templates, user }: Props) {
                                     Catatan Penting:
                                 </h4>
                                 <ul className="space-y-1 text-sm text-gray-600">
-                                    <li>• Nomor sertifikat harus unik</li>
+                                    <li>• Nomor sertifikat opsional. Kosongkan atau hapus kolomnya untuk nomor otomatis. Nomor manual harus unik.</li>
                                     <li>• Format tanggal: YYYY-MM-DD (jika ada kolom tanggal)</li>
                                     <li>• Baris pertama akan diabaikan (header)</li>
                                     <li>• Urutan kolom harus sesuai dengan variabel yang sudah di-mapping</li>

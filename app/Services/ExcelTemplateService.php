@@ -7,11 +7,40 @@ use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class ExcelTemplateService
 {
+    /**
+     * @param  array<int, mixed>  $headers
+     * @param  array<int, mixed>  $row
+     * @param  array<int, array{name: string}>  $variables
+     * @return array<int, mixed>
+     */
+    public function normalizeCertificateNumberColumn(array $headers, array $row, array $variables): array
+    {
+        $numberNames = ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'];
+        foreach ($headers as $header) {
+            $name = strtolower(str_replace(' ', '_', trim((string) $header)));
+            if (in_array($name, $numberNames, true)) {
+                return $row;
+            }
+        }
+
+        $numberIndex = count($variables);
+        foreach ($variables as $index => $variable) {
+            if (in_array(strtolower($variable['name']), $numberNames, true)) {
+                $numberIndex = $index;
+                break;
+            }
+        }
+        array_splice($row, $numberIndex, 0, [null]);
+
+        return $row;
+    }
+
     public function generateTemplateExcel(TemplateSertif $template): string
     {
         $filename = 'Template_Excel_'.$template->title.'_'.date('Y-m-d').'.xlsx';
@@ -58,19 +87,19 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
             // Default columns if no variables mapped
             return [
                 [
-                    'SERT-001',
+                    '',
                     'john.doe@example.com',
                     date('Y-m-d'),
                     'John Doe',
                 ],
                 [
-                    'SERT-002',
+                    '',
                     'jane.smith@example.com',
                     date('Y-m-d'),
                     'Jane Smith',
                 ],
                 [
-                    'SERT-003',
+                    '',
                     'bob.wilson@example.com',
                     date('Y-m-d'),
                     'Bob Wilson',
@@ -105,7 +134,7 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
 
                 // Generate contoh data berdasarkan nama variabel yang SEBENARNYA
                 if (in_array($varName, ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'])) {
-                    $dataRow[] = 'SERT-'.str_pad($i, 3, '0', STR_PAD_LEFT);
+                    $dataRow[] = '';
                 } elseif (in_array($varName, ['email', 'e_mail', 'alamat_email', 'email_peserta'])) {
                     $dataRow[] = 'user'.$i.'@example.com';
                 } elseif (in_array($varName, ['issued_at', 'tanggal_terbit', 'tanggal', 'tgl_terbit', 'date'])) {
@@ -127,9 +156,9 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
                 }
             }
 
-            // Tambahkan Nomor Sertifikat di akhir jika belum ada di variabel (WAJIB)
+            // Tambahkan Nomor Sertifikat opsional di akhir jika belum ada di variabel
             if (! $hasNomorSertif) {
-                $dataRow[] = 'SERT-'.str_pad($i, 3, '0', STR_PAD_LEFT);
+                $dataRow[] = '';
             }
 
             // Tambahkan email di akhir jika belum ada di variabel (WAJIB)
@@ -182,7 +211,7 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
             $headings[] = $heading;
         }
 
-        // Tambahkan Nomor Sertifikat di akhir jika belum ada di variabel (WAJIB)
+        // Tambahkan Nomor Sertifikat opsional di akhir jika belum ada di variabel
         if (! $hasNomorSertif) {
             $headings[] = 'Nomor Sertifikat';
         }
@@ -197,6 +226,13 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
 
     public function styles(Worksheet $sheet): ?array
     {
+        foreach ($this->headings() as $index => $heading) {
+            if (in_array(strtolower(str_replace(' ', '_', $heading)), ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'], true)) {
+                $sheet->getComment(Coordinate::stringFromColumnIndex($index + 1).'1')
+                    ->getText()->createTextRun('Opsional. Kosongkan untuk membuat nomor sertifikat otomatis.');
+            }
+        }
+
         return [
             1 => [
                 'font' => [
