@@ -5,11 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\Document;
 use App\Models\EncryptionKey;
 use App\Models\Signature;
-use App\Models\TemplateSertif;
+use App\Models\User;
 use App\Services\EncryptionService;
 use App\Services\SignatureService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Storage;
@@ -18,6 +20,7 @@ use Inertia\Inertia;
 class SignatureController extends Controller
 {
     protected SignatureService $signatureService;
+
     protected EncryptionService $encryptionService;
 
     public function __construct(SignatureService $signatureService, EncryptionService $encryptionService)
@@ -34,7 +37,7 @@ class SignatureController extends Controller
 
         return Inertia::render('Signatures/Index', [
             'signatures' => $signatures,
-            'user' => Auth::user()
+            'user' => Auth::user(),
         ]);
     }
 
@@ -68,13 +71,13 @@ class SignatureController extends Controller
             abort(403, 'Hanya pimpinan yang dapat mengakses halaman tanda tangan');
         }
 
-        $document->load(['user', 'signatures.user', 'signers']);
+        $document->load(['user', 'signatures.user', 'signers.user']);
         $hasEncryptionKeys = EncryptionKey::where('userId', Auth::id())->exists();
 
         return Inertia::render('Signature/Show', [
             'document' => $document,
             'existingSignatures' => $this->signatureService->getSignaturePositions($document),
-            'canSign' => $this->canUserSign($document),
+            'canSign' => $document->canUserSign($user),
             'hasEncryptionKeys' => $hasEncryptionKeys,
             'user' => $user,
         ]);
@@ -95,6 +98,31 @@ class SignatureController extends Controller
             ], 403);
         }
 
+        // Check if user is a designated signer
+        $signer = $document->signerFor($user);
+        if (! $signer) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak terdaftar sebagai penanda tangan untuk dokumen ini.',
+            ], 403);
+        }
+
+        // Check if user already signed
+        if ($signer->is_signed) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda sudah menandatangani dokumen ini.',
+            ], 403);
+        }
+
+        // Enforce sign order
+        if (! $document->canSignNow($signer)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tunggu penanda tangan sebelumnya menyelesaikan tanda tangan terlebih dahulu.',
+            ], 403);
+        }
+
         $request->validate([
             'signatureData' => 'required|string',
             'position' => 'array',
@@ -106,25 +134,46 @@ class SignatureController extends Controller
         ]);
 
         try {
-            $signature = $this->signatureService->createPhysicalSignature([
-                'documentId' => $document->id,
-                'userId' => Auth::id(),
-                'signatureData' => $request->signatureData,
-                'position' => $request->position ?? [],
-            ]);
+            $signature = DB::transaction(function () use ($document, $user, $request) {
+                // Lock the document row so concurrent signing requests for this
+                // document (which read-modify-write the same cumulative PDF) are serialized.
+                $lockedDocument = Document::whereKey($document->id)->lockForUpdate()->first();
+                $signer = $lockedDocument->signerFor($user);
 
-            // Update signer status
-            $this->updateSignerStatus($document, Auth::id());
+                if (! $signer || $signer->is_signed) {
+                    throw new \RuntimeException('Anda sudah menandatangani dokumen ini.');
+                }
+
+                if (! $lockedDocument->canSignNow($signer)) {
+                    throw new \RuntimeException('Tunggu penanda tangan sebelumnya menyelesaikan tanda tangan terlebih dahulu.');
+                }
+
+                $signature = $this->signatureService->createPhysicalSignature([
+                    'documentId' => $document->id,
+                    'userId' => $user->id,
+                    'signatureData' => $request->signatureData,
+                    'position' => $request->position ?? [],
+                ]);
+
+                $signer->update(['is_signed' => true]);
+
+                return $signature;
+            });
 
             return response()->json([
                 'success' => true,
                 'message' => 'Physical signature created successfully',
                 'signature' => $signature->load('user'),
             ]);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to create physical signature: ' . $e->getMessage(),
+                'message' => 'Failed to create physical signature: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -134,6 +183,41 @@ class SignatureController extends Controller
      */
     public function storeDigital(Request $request, Document $document)
     {
+        $user = Auth::user();
+
+        // Only pimpinan can create signatures
+        if ($user->role !== 'pimpinan') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya pimpinan yang dapat membuat tanda tangan',
+            ], 403);
+        }
+
+        // Check if user is a designated signer
+        $signer = $document->signerFor($user);
+        if (! $signer) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak terdaftar sebagai penanda tangan untuk dokumen ini.',
+            ], 403);
+        }
+
+        // Check if user already signed
+        if ($signer->is_signed) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda sudah menandatangani dokumen ini.',
+            ], 403);
+        }
+
+        // Enforce sign order
+        if (! $document->canSignNow($signer)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tunggu penanda tangan sebelumnya menyelesaikan tanda tangan terlebih dahulu.',
+            ], 403);
+        }
+
         $request->validate([
             'position' => 'array',
             'position.x' => 'nullable|integer|min:0',
@@ -144,9 +228,7 @@ class SignatureController extends Controller
             'pin' => 'required|string|digits:6',
         ]);
 
-        $user = Auth::user();
-
-        if (!\Illuminate\Support\Facades\Hash::check($request->pin, $user->pin)) {
+        if (! Hash::check($request->pin, $user->pin)) {
             return response()->json([
                 'success' => false,
                 'message' => 'PIN salah',
@@ -154,22 +236,42 @@ class SignatureController extends Controller
         }
 
         try {
-            $signature = $this->signatureService->createDigitalSignature([
-                'documentId' => $document->id,
-                'userId' => Auth::id(),
-                'position' => $request->position ?? [],
-                'passphrase' => $request->pin, // Use PIN as passphrase
-            ]);
+            $signature = DB::transaction(function () use ($document, $user, $request) {
+                // Lock the document row so concurrent signing requests for this
+                // document are serialized and can't both pass the "already signed" check.
+                $lockedDocument = Document::whereKey($document->id)->lockForUpdate()->first();
+                $signer = $lockedDocument->signerFor($user);
 
-            // Update signer status
-            $this->updateSignerStatus($document, Auth::id());
+                if (! $signer || $signer->is_signed) {
+                    throw new \RuntimeException('Anda sudah menandatangani dokumen ini.');
+                }
+
+                if (! $lockedDocument->canSignNow($signer)) {
+                    throw new \RuntimeException('Tunggu penanda tangan sebelumnya menyelesaikan tanda tangan terlebih dahulu.');
+                }
+
+                $signature = $this->signatureService->createDigitalSignature([
+                    'documentId' => $document->id,
+                    'userId' => $user->id,
+                    'position' => $request->position ?? [],
+                    'passphrase' => $request->pin, // Use PIN as passphrase
+                ]);
+
+                $signer->update(['is_signed' => true]);
+
+                return $signature;
+            });
 
             return response()->json([
                 'success' => true,
                 'message' => 'Digital signature created successfully',
                 'signature' => $signature->load('user'),
             ]);
-        } catch (\Exception $e) {
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -190,6 +292,22 @@ class SignatureController extends Controller
             return redirect()->back()->withErrors(['error' => 'Hanya pimpinan yang dapat membuat tanda tangan']);
         }
 
+        // Check if user is a designated signer
+        $signer = $document->signerFor($user);
+        if (! $signer) {
+            return redirect()->back()->withErrors(['error' => 'Anda tidak terdaftar sebagai penanda tangan untuk dokumen ini.']);
+        }
+
+        // Check if user already signed
+        if ($signer->is_signed) {
+            return redirect()->back()->withErrors(['error' => 'Anda sudah menandatangani dokumen ini.']);
+        }
+
+        // Enforce sign order
+        if (! $document->canSignNow($signer)) {
+            return redirect()->back()->withErrors(['error' => 'Tunggu penanda tangan sebelumnya menyelesaikan tanda tangan terlebih dahulu.']);
+        }
+
         $request->validate([
             'signatureData' => 'required|string',
             'position' => 'required|array',
@@ -202,52 +320,68 @@ class SignatureController extends Controller
             'signedPdfBase64' => 'nullable|string',
         ]);
 
-        if (!\Illuminate\Support\Facades\Hash::check($request->pin, $user->pin)) {
+        if (! Hash::check($request->pin, $user->pin)) {
             return redirect()->back()->withErrors(['error' => 'PIN salah']);
         }
 
         try {
-            // Create physical signature
-            $physicalSignature = $this->signatureService->createPhysicalSignature([
-                'documentId' => $document->id,
-                'userId' => Auth::id(),
-                'signatureData' => $request->signatureData, // Frontend should send image data or null if using saved image? Handled by frontend sending logic.
-                'position' => $request->position,
-            ]);
+            DB::transaction(function () use ($document, $user, $request) {
+                // Lock the document row so concurrent signing requests for this
+                // document (which read-modify-write the same cumulative signed PDF)
+                // are serialized instead of racing to overwrite each other's output.
+                $lockedDocument = Document::whereKey($document->id)->lockForUpdate()->first();
+                $signer = $lockedDocument->signerFor($user);
 
-            // Create digital signature (for verification, not displayed in PDF)
-            $digitalSignature = $this->signatureService->createDigitalSignature([
-                'documentId' => $document->id,
-                'userId' => Auth::id(),
-                'position' => [
-                    'x' => $request->position['x'],
-                    'y' => $request->position['y'] + ($request->position['height'] ?? 75) + 10,
-                    'width' => 200,
-                    'height' => 60,
-                    'page' => $request->position['page'] ?? 1,
-                ],
-                'passphrase' => $request->pin, // Use PIN
-            ]);
+                if (! $signer || $signer->is_signed) {
+                    throw new \RuntimeException('Anda sudah menandatangani dokumen ini.');
+                }
 
-            // Save signed PDF if provided
-            if ($request->signedPdfBase64) {
-                Log::info('Attempting to save signed PDF', [
-                    'document_id' => $document->id,
-                    'data_length' => strlen($request->signedPdfBase64)
+                if (! $lockedDocument->canSignNow($signer)) {
+                    throw new \RuntimeException('Tunggu penanda tangan sebelumnya menyelesaikan tanda tangan terlebih dahulu.');
+                }
+
+                // Create physical signature
+                $this->signatureService->createPhysicalSignature([
+                    'documentId' => $document->id,
+                    'userId' => $user->id,
+                    'signatureData' => $request->signatureData, // Frontend should send image data or null if using saved image? Handled by frontend sending logic.
+                    'position' => $request->position,
                 ]);
 
-                $this->signatureService->saveSignedPDF($document, $request->signedPdfBase64);
+                // Create digital signature (for verification, not displayed in PDF)
+                $this->signatureService->createDigitalSignature([
+                    'documentId' => $document->id,
+                    'userId' => $user->id,
+                    'position' => [
+                        'x' => $request->position['x'],
+                        'y' => $request->position['y'] + ($request->position['height'] ?? 75) + 10,
+                        'width' => 200,
+                        'height' => 60,
+                        'page' => $request->position['page'] ?? 1,
+                    ],
+                    'passphrase' => $request->pin, // Use PIN
+                ]);
 
-                Log::info('Signed PDF saved successfully');
-            } else {
-                Log::warning('No signed PDF data provided');
-            }
+                // Save signed PDF if provided
+                if ($request->signedPdfBase64) {
+                    Log::info('Attempting to save signed PDF', [
+                        'document_id' => $document->id,
+                        'data_length' => strlen($request->signedPdfBase64),
+                    ]);
 
-            // Update signer status
-            $this->updateSignerStatus($document, Auth::id());
+                    $this->signatureService->saveSignedPDF($document, $request->signedPdfBase64);
+
+                    Log::info('Signed PDF saved successfully');
+                } else {
+                    Log::warning('No signed PDF data provided');
+                }
+
+                $signer->update(['is_signed' => true]);
+            });
 
             return redirect()->route('documents.show', $document->id)->with('success', 'Tanda tangan berhasil ditambahkan (Fisik + Digital)');
-        } catch (\Exception $e) {
+        } catch (\RuntimeException $e) {
+            return redirect()->back()->withErrors(['error' => $e->getMessage()]);
         } catch (\Exception $e) {
             return redirect()->back()->withErrors(['error' => $e->getMessage()]);
         }
@@ -261,7 +395,7 @@ class SignatureController extends Controller
         try {
             // If document already has a signed file, use that instead of generating new one
             if ($document->signed_file && Storage::disk('public')->exists($document->signed_file)) {
-                $signedFilePath = storage_path('app/public/' . $document->signed_file);
+                $signedFilePath = storage_path('app/public/'.$document->signed_file);
                 $file = file_get_contents($signedFilePath);
             } else {
                 // Otherwise, generate signed PDF dynamically
@@ -274,11 +408,11 @@ class SignatureController extends Controller
 
             return response($file, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="signed_' . basename($document->files) . '"',
+                'Content-Disposition' => 'inline; filename="signed_'.basename($document->files).'"',
                 'Accept-Ranges' => 'none', // Try to discourage IDM
             ]);
         } catch (\Exception $e) {
-            return response('Error generating signed PDF: ' . $e->getMessage(), 500);
+            return response('Error generating signed PDF: '.$e->getMessage(), 500);
         }
     }
 
@@ -290,20 +424,20 @@ class SignatureController extends Controller
         try {
             // If document already has a signed file, use that instead of generating new one
             if ($document->signed_file && Storage::disk('public')->exists($document->signed_file)) {
-                $signedFilePath = storage_path('app/public/' . $document->signed_file);
+                $signedFilePath = storage_path('app/public/'.$document->signed_file);
 
-                return Response::download($signedFilePath, 'signed_' . basename($document->files));
+                return Response::download($signedFilePath, 'signed_'.basename($document->files));
             }
 
             // Otherwise, generate signed PDF dynamically
             $signedPdfPath = $this->signatureService->applySignaturesToPDF($document);
 
-            return Response::download($signedPdfPath, 'signed_' . basename($document->files))
+            return Response::download($signedPdfPath, 'signed_'.basename($document->files))
                 ->deleteFileAfterSend(true);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to generate signed PDF: ' . $e->getMessage(),
+                'message' => 'Failed to generate signed PDF: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -336,7 +470,7 @@ class SignatureController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to verify signature: ' . $e->getMessage(),
+                'message' => 'Failed to verify signature: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -378,75 +512,57 @@ class SignatureController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update signature position: ' . $e->getMessage(),
+                'message' => 'Failed to update signature position: '.$e->getMessage(),
             ], 500);
         }
     }
 
-    public function destroy(Signature $signature)
-    {
-        if ($signature->userId !== Auth::id()) {
-            return back()->withErrors([
-                'error' => 'Unauthorized to delete this signature',
-            ]);
-        }
-
-        try {
-            if ($signature->signatureFile) {
-                Storage::delete($signature->signatureFile);
-            }
-
-            $document = $signature->document;
-            $signature->delete();
-
-            // Check if this was the last signature for this document
-            $remainingSignatures = Signature::where('documentId', $document->id)->count();
-
-            if ($remainingSignatures === 0) {
-                // Delete the signed file if no signatures remain
-                if ($document->signed_file) {
-                    Storage::delete('public/' . $document->signed_file);
-                    $document->signed_file = null;
-                    $document->save();
-                }
-            }
-
-            return back()->with('success', 'Signature deleted successfully');
-        } catch (\Exception $e) {
-            return back()->withErrors([
-                'error' => 'Failed to delete signature: ' . $e->getMessage(),
-            ]);
-        }
-    }
-
     /**
-     * Check if current user can sign the document
+     * Delete the authenticated user's signature(s) (physical + digital together)
+     * from a document, then rebuild the cumulative signed PDF from what remains.
      */
-    private function canUserSign(Document $document): bool
+    public function destroy(Document $document)
     {
         $user = Auth::user();
 
-        // Only pimpinan can sign documents
-        if ($user->role !== 'pimpinan') {
-            return false;
+        try {
+            DB::transaction(function () use ($document, $user) {
+                // Lock the document row to keep this in sync with concurrent signing requests.
+                $lockedDocument = Document::whereKey($document->id)->lockForUpdate()->first();
+
+                if ($lockedDocument->isCompleted()) {
+                    throw new \RuntimeException('Dokumen sudah lengkap ditandatangani semua pihak, tidak dapat menghapus tanda tangan.');
+                }
+
+                $signatures = Signature::where('documentId', $lockedDocument->id)
+                    ->where('userId', $user->id)
+                    ->get();
+
+                if ($signatures->isEmpty()) {
+                    throw new \RuntimeException('Anda belum menandatangani dokumen ini.');
+                }
+
+                foreach ($signatures as $signature) {
+                    if ($signature->signatureFile) {
+                        Storage::delete($signature->signatureFile);
+                    }
+                    $signature->delete();
+                }
+
+                $signer = $lockedDocument->signerFor($user);
+                $signer?->update(['is_signed' => false]);
+
+                $this->signatureService->reconstructSignedDocument($lockedDocument);
+            });
+
+            return back()->with('success', 'Tanda tangan (fisik + digital) berhasil dihapus');
+        } catch (\RuntimeException $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        } catch (\Exception $e) {
+            return back()->withErrors([
+                'error' => 'Failed to delete signature: '.$e->getMessage(),
+            ]);
         }
-
-        // Check if user is a designated signer
-        $isSigner = $document->signers()
-            ->where('user_id', $user->id)
-            ->exists();
-
-        if (!$isSigner) {
-            return false;
-        }
-
-        // Check if user already signed
-        $hasSigned = $document->signers()
-            ->where('user_id', $user->id)
-            ->where('is_signed', true)
-            ->exists();
-
-        return !$hasSigned;
     }
 
     /**
@@ -457,7 +573,7 @@ class SignatureController extends Controller
         try {
             // Get all signatures for this document
             $signatures = $document->signatures()->with('user')->get();
-            
+
             // Get all required signers
             $signers = $document->signers()->get();
 
@@ -486,10 +602,11 @@ class SignatureController extends Controller
                     ],
                 ];
             });
-            
+
             // Get signer info with status
             $signerInfo = $signers->map(function ($signer) {
-                $user = \App\Models\User::find($signer->user_id);
+                $user = User::find($signer->user_id);
+
                 return [
                     'user_id' => $signer->user_id,
                     'name' => $user ? $user->name : 'Unknown',
@@ -503,17 +620,41 @@ class SignatureController extends Controller
                 return $signer->is_signed;
             });
 
-            $verificationStatus = $allSigned ? 'signed' : 'unsigned';
-            $isVerified = $allSigned;
+            // Bandingkan hash aktual file PDF signed_file saat ini dengan content_hash
+            // yang tersimpan saat proses tanda tangan terakhir, untuk deteksi tampering.
+            $integrityStatus = 'unknown';
+            if ($document->content_hash) {
+                $signedPath = $document->signed_file
+                    ? storage_path('app/public/'.$document->signed_file)
+                    : null;
+                $currentHash = $signedPath ? $this->signatureService->hashFile($signedPath) : null;
+
+                $integrityStatus = $currentHash === null
+                    ? 'file_missing'
+                    : ($currentHash === $document->content_hash ? 'valid' : 'tampered');
+            }
+
+            $verificationStatus = ! $allSigned
+                ? 'unsigned'
+                : ($integrityStatus === 'tampered' ? 'tampered' : 'signed');
+            $isVerified = $allSigned && $integrityStatus !== 'tampered';
+
+            $message = match (true) {
+                ! $allSigned => 'Dokumen belum lengkap ditandatangani',
+                $integrityStatus === 'tampered' => 'PERINGATAN: File dokumen telah diubah sejak ditandatangani. Hash tidak cocok.',
+                $integrityStatus === 'file_missing' => 'Dokumen ditandatangani, namun file PDF tidak ditemukan di server.',
+                default => 'Dokumen berhasil diverifikasi',
+            };
 
             return Inertia::render('Verification/Show', [
                 'document' => $documentInfo,
                 'signatures' => $signatureInfo,
                 'signers' => $signerInfo,
                 'verification_status' => $verificationStatus,
+                'integrity_status' => $integrityStatus,
                 'verified_at' => now()->toISOString(),
                 'success' => $isVerified,
-                'message' => $isVerified ? 'Dokumen berhasil diverifikasi' : 'Dokumen belum lengkap ditandatangani',
+                'message' => $message,
             ]);
         } catch (\Exception $e) {
             return Inertia::render('Verification/Show', [
@@ -529,14 +670,8 @@ class SignatureController extends Controller
                 'verification_status' => 'error',
                 'verified_at' => now()->toISOString(),
                 'success' => false,
-                'message' => 'Gagal memverifikasi dokumen: ' . $e->getMessage(),
+                'message' => 'Gagal memverifikasi dokumen: '.$e->getMessage(),
             ]);
         }
-    }
-    private function updateSignerStatus(Document $document, string $userId)
-    {
-        $document->signers()
-            ->where('user_id', $userId)
-            ->update(['is_signed' => true]);
     }
 }

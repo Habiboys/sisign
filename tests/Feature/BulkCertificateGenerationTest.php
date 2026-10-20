@@ -8,6 +8,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
+use Maatwebsite\Excel\Concerns\Import;
+use Maatwebsite\Excel\Facades\Excel;
+use Mockery;
 use Tests\TestCase;
 
 class BulkCertificateGenerationTest extends TestCase
@@ -21,28 +24,30 @@ class BulkCertificateGenerationTest extends TestCase
 
         $user = User::factory()->create(['role' => 'admin']);
         $template = TemplateSertif::factory()->create([
-            'signed_template_path' => 'templates/signed_test.pdf'
+            'signed_template_path' => 'templates/signed_test.pdf',
         ]);
-        
+
         // Create a dummy signed PDF
         Storage::disk('public')->put('templates/signed_test.pdf', '%PDF-1.4 dummy content');
+        $template->update(['signed_template_path' => Storage::disk('public')->path('templates/signed_test.pdf')]);
 
         // Create a fake Excel file
-        // We can't easily create a real Excel file in test without a library, 
+        // We can't easily create a real Excel file in test without a library,
         // but we can mock the Excel facade or just rely on the controller validation passing
         // and then mocking the Excel::toArray call if possible.
-        // However, since we are testing the controller which calls Excel::toArray, 
+        // However, since we are testing the controller which calls Excel::toArray,
         // we might need a real file or mock the facade.
-        
+
         // Let's try to mock Excel facade
-        \Maatwebsite\Excel\Facades\Excel::shouldReceive('toArray')
+        Excel::shouldReceive('toArray')
             ->once()
+            ->with(Mockery::type(Import::class), Mockery::type(UploadedFile::class))
             ->andReturn([
                 [
                     ['Nomor', 'Email'], // Header
                     ['SERT-001', 'test1@example.com'],
                     ['SERT-002', 'test2@example.com'],
-                ]
+                ],
             ]);
 
         $file = UploadedFile::fake()->create('recipients.xlsx');
@@ -51,17 +56,32 @@ class BulkCertificateGenerationTest extends TestCase
             ->post(route('certificates.generate-from-excel'), [
                 'templateSertifId' => $template->id,
                 'excel_file' => $file,
-                'passphrase' => 'secret'
+                'passphrase' => 'secret',
             ]);
 
-        $response->assertRedirect();
+        $response->assertSessionMissing('error')->assertRedirect();
         // Check if redirected to progress page
         // The URL should contain 'certificates/bulk/progress/'
         $this->assertStringContainsString('certificates/bulk/progress/', $response->headers->get('Location'));
 
         Bus::assertBatched(function ($batch) use ($template) {
-            return $batch->name == 'Bulk Certificate Generation - ' . $template->title &&
+            return $batch->name == 'Bulk Certificate Generation - '.$template->title &&
                    $batch->jobs->count() === 2;
         });
+    }
+
+    public function test_bulk_store_reads_excel_with_the_current_import_contract(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $recipient = User::factory()->create();
+        $template = TemplateSertif::factory()->create();
+        Excel::shouldReceive('toArray')->once()
+            ->with(Mockery::type(Import::class), Mockery::type(UploadedFile::class))
+            ->andReturn([[['Nomor', 'Email'], ['CERT-IMPORT-001', $recipient->email]]]);
+        $this->actingAs($admin)->post(route('certificates.bulk.store'), [
+            'templateSertifId' => $template->id,
+            'excel_file' => UploadedFile::fake()->create('recipients.xlsx'),
+        ])->assertSessionHasNoErrors()->assertRedirect(route('certificates.index'));
+        $this->assertDatabaseHas('sertifikat', ['nomor_sertif' => 'CERT-IMPORT-001', 'templateSertifId' => $template->id]);
     }
 }

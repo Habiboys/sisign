@@ -24,6 +24,7 @@ interface TemplateInfo {
         is_signed: boolean;
         order: number;
     }>;
+    integrity_status?: 'valid' | 'tampered' | 'file_missing' | 'unknown';
 }
 
 interface ReviewInfo {
@@ -48,6 +49,7 @@ export default function TemplateVerification({
     verification_time,
     message,
 }: Props) {
+    const isTampered = template?.integrity_status === 'tampered';
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'approved':
@@ -89,25 +91,53 @@ export default function TemplateVerification({
                 </div>
 
                 <div className="mt-8">
-                    {success && template ? (
+                    {template ? (
                         <div className="space-y-6">
                             {/* Status Verifikasi */}
-                            <Card>
+                            <Card
+                                className={
+                                    isTampered
+                                        ? 'border-red-200 bg-red-50'
+                                        : undefined
+                                }
+                            >
                                 <CardHeader>
-                                    <CardTitle className="flex items-center text-green-600">
-                                        <CheckCircle className="mr-2 h-6 w-6" />
-                                        Verifikasi Berhasil
+                                    <CardTitle
+                                        className={`flex items-center ${isTampered ? 'text-red-600' : 'text-green-600'}`}
+                                    >
+                                        {isTampered ? (
+                                            <XCircle className="mr-2 h-6 w-6" />
+                                        ) : (
+                                            <CheckCircle className="mr-2 h-6 w-6" />
+                                        )}
+                                        {isTampered
+                                            ? 'Template Telah Diubah'
+                                            : 'Verifikasi Berhasil'}
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <p className="text-gray-600">
-                                        Template telah berhasil diverifikasi
-                                        pada{' '}
-                                        <span className="font-medium">
-                                            {new Date(
-                                                verification_time,
-                                            ).toLocaleString('id-ID')}
-                                        </span>
+                                    <p
+                                        className={
+                                            isTampered
+                                                ? 'text-red-700'
+                                                : 'text-gray-600'
+                                        }
+                                    >
+                                        {isTampered
+                                            ? message
+                                            : (
+                                                <>
+                                                    Template telah berhasil
+                                                    diverifikasi pada{' '}
+                                                    <span className="font-medium">
+                                                        {new Date(
+                                                            verification_time,
+                                                        ).toLocaleString(
+                                                            'id-ID',
+                                                        )}
+                                                    </span>
+                                                </>
+                                            )}
                                     </p>
                                 </CardContent>
                             </Card>
@@ -162,6 +192,30 @@ export default function TemplateVerification({
                                                 </Badge>
                                             )}
                                         </div>
+                                        {template.integrity_status &&
+                                            template.integrity_status !== 'unknown' && (
+                                                <div>
+                                                    <h4 className="font-medium text-gray-900">
+                                                        Integritas File
+                                                    </h4>
+                                                    {template.integrity_status === 'valid' ? (
+                                                        <Badge className="bg-green-100 text-green-800">
+                                                            <CheckCircle className="mr-1 h-3 w-3" />
+                                                            Hash Cocok
+                                                        </Badge>
+                                                    ) : template.integrity_status === 'tampered' ? (
+                                                        <Badge className="bg-red-100 text-red-800">
+                                                            <XCircle className="mr-1 h-3 w-3" />
+                                                            Telah Diubah
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge className="bg-yellow-100 text-yellow-800">
+                                                            <XCircle className="mr-1 h-3 w-3" />
+                                                            File Tidak Ditemukan
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            )}
                                     </div>
 
                                     {template.description && (

@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
 class DocumentSigner extends Model
 {
@@ -15,6 +15,11 @@ class DocumentSigner extends Model
         'user_id',
         'is_signed',
         'sign_order',
+    ];
+
+    protected $casts = [
+        'is_signed' => 'boolean',
+        'sign_order' => 'integer',
     ];
 
     public function document()

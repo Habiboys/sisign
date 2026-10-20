@@ -3,21 +3,51 @@
 namespace App\Services;
 
 use App\Models\TemplateSertif;
-use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithStyles;
+use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class ExcelTemplateService
 {
+    /**
+     * @param  array<int, mixed>  $headers
+     * @param  array<int, mixed>  $row
+     * @param  array<int, array{name: string}>  $variables
+     * @return array<int, mixed>
+     */
+    public function normalizeCertificateNumberColumn(array $headers, array $row, array $variables): array
+    {
+        $numberNames = ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'];
+        foreach ($headers as $header) {
+            $name = strtolower(str_replace(' ', '_', trim((string) $header)));
+            if (in_array($name, $numberNames, true)) {
+                return $row;
+            }
+        }
+
+        $numberIndex = count($variables);
+        foreach ($variables as $index => $variable) {
+            if (in_array(strtolower($variable['name']), $numberNames, true)) {
+                $numberIndex = $index;
+                break;
+            }
+        }
+        array_splice($row, $numberIndex, 0, [null]);
+
+        return $row;
+    }
+
     public function generateTemplateExcel(TemplateSertif $template): string
     {
-        $filename = 'Template_Excel_' . $template->title . '_' . date('Y-m-d') . '.xlsx';
-        $filepath = storage_path('app/temp/' . $filename);
+        $filename = 'Template_Excel_'.$template->title.'_'.date('Y-m-d').'.xlsx';
+        $filepath = storage_path('app/temp/'.$filename);
 
         // Ensure temp directory exists
-        if (!file_exists(dirname($filepath))) {
+        if (! file_exists(dirname($filepath))) {
             mkdir(dirname($filepath), 0755, true);
         }
 
@@ -28,7 +58,7 @@ class ExcelTemplateService
 
     public function downloadTemplateExcel(TemplateSertif $template)
     {
-        $filename = 'Template_Excel_' . str_replace(' ', '_', $template->title) . '_' . date('Y-m-d') . '.xlsx';
+        $filename = 'Template_Excel_'.str_replace(' ', '_', $template->title).'_'.date('Y-m-d').'.xlsx';
 
         return Excel::download(new TemplateExcelExport($template), $filename);
     }
@@ -48,7 +78,6 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
      * PENTING: Urutan kolom Excel HARUS sama dengan urutan variabel di variable_positions
      * Kolom 0 = variable_positions[0], Kolom 1 = variable_positions[1], dst
      */
-
     public function array(): array
     {
         // Generate example data based on variable positions - URUTAN HARUS SAMA DENGAN VARIABLE_POSITIONS
@@ -58,23 +87,23 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
             // Default columns if no variables mapped
             return [
                 [
-                    'SERT-001',
+                    '',
                     'john.doe@example.com',
                     date('Y-m-d'),
                     'John Doe',
                 ],
                 [
-                    'SERT-002',
+                    '',
                     'jane.smith@example.com',
                     date('Y-m-d'),
                     'Jane Smith',
                 ],
                 [
-                    'SERT-003',
+                    '',
                     'bob.wilson@example.com',
                     date('Y-m-d'),
                     'Bob Wilson',
-                ]
+                ],
             ];
         }
 
@@ -105,36 +134,36 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
 
                 // Generate contoh data berdasarkan nama variabel yang SEBENARNYA
                 if (in_array($varName, ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'])) {
-                    $dataRow[] = 'SERT-' . str_pad($i, 3, '0', STR_PAD_LEFT);
+                    $dataRow[] = '';
                 } elseif (in_array($varName, ['email', 'e_mail', 'alamat_email', 'email_peserta'])) {
-                    $dataRow[] = 'user' . $i . '@example.com';
+                    $dataRow[] = 'user'.$i.'@example.com';
                 } elseif (in_array($varName, ['issued_at', 'tanggal_terbit', 'tanggal', 'tgl_terbit', 'date'])) {
                     $dataRow[] = date('Y-m-d');
                 } elseif (in_array($varName, ['nama_lengkap', 'nama', 'name', 'nama_peserta', 'peserta', 'nama_gacor'])) {
                     // Support nama_gacor dan variasi nama lainnya
                     $names = ['John Doe', 'Jane Smith', 'Bob Wilson'];
-                    $dataRow[] = $names[$i - 1] ?? 'Peserta ' . $i;
+                    $dataRow[] = $names[$i - 1] ?? 'Peserta '.$i;
                 } elseif (in_array($varName, ['jabatan', 'position', 'posisi'])) {
                     $positions = ['Manager', 'Senior Developer', 'Analyst'];
-                    $dataRow[] = $positions[$i - 1] ?? 'Jabatan ' . $i;
+                    $dataRow[] = $positions[$i - 1] ?? 'Jabatan '.$i;
                 } elseif (in_array($varName, ['departemen', 'department', 'dept'])) {
                     $departments = ['IT Department', 'IT Department', 'Finance Department'];
-                    $dataRow[] = $departments[$i - 1] ?? 'Departemen ' . $i;
+                    $dataRow[] = $departments[$i - 1] ?? 'Departemen '.$i;
                 } else {
                     // Untuk variabel lain, gunakan contoh data berdasarkan nama variabel
                     // Contoh: nama_gacor -> "Contoh Nama Gacor 1"
-                    $dataRow[] = 'Contoh ' . ucwords(str_replace('_', ' ', $varName)) . ' ' . $i;
+                    $dataRow[] = 'Contoh '.ucwords(str_replace('_', ' ', $varName)).' '.$i;
                 }
             }
 
-            // Tambahkan Nomor Sertifikat di akhir jika belum ada di variabel (WAJIB)
-            if (!$hasNomorSertif) {
-                $dataRow[] = 'SERT-' . str_pad($i, 3, '0', STR_PAD_LEFT);
+            // Tambahkan Nomor Sertifikat opsional di akhir jika belum ada di variabel
+            if (! $hasNomorSertif) {
+                $dataRow[] = '';
             }
 
             // Tambahkan email di akhir jika belum ada di variabel (WAJIB)
-            if (!$hasEmail) {
-                $dataRow[] = 'user' . $i . '@example.com';
+            if (! $hasEmail) {
+                $dataRow[] = 'user'.$i.'@example.com';
             }
 
             $exampleData[] = $dataRow;
@@ -182,32 +211,39 @@ class TemplateExcelExport implements FromArray, WithHeadings, WithStyles
             $headings[] = $heading;
         }
 
-        // Tambahkan Nomor Sertifikat di akhir jika belum ada di variabel (WAJIB)
-        if (!$hasNomorSertif) {
+        // Tambahkan Nomor Sertifikat opsional di akhir jika belum ada di variabel
+        if (! $hasNomorSertif) {
             $headings[] = 'Nomor Sertifikat';
         }
 
         // Tambahkan Email di akhir jika belum ada di variabel (WAJIB untuk kirim sertifikat)
-        if (!$hasEmail) {
+        if (! $hasEmail) {
             $headings[] = 'Email';
         }
 
         return $headings;
     }
 
-    public function styles(Worksheet $sheet)
+    public function styles(Worksheet $sheet): ?array
     {
+        foreach ($this->headings() as $index => $heading) {
+            if (in_array(strtolower(str_replace(' ', '_', $heading)), ['nomor_sertif', 'nomor', 'no_sertifikat', 'no', 'nomor_sertifikat'], true)) {
+                $sheet->getComment(Coordinate::stringFromColumnIndex($index + 1).'1')
+                    ->getText()->createTextRun('Opsional. Kosongkan untuk membuat nomor sertifikat otomatis.');
+            }
+        }
+
         return [
             1 => [
                 'font' => [
                     'bold' => true,
-                    'color' => ['rgb' => 'FFFFFF']
+                    'color' => ['rgb' => 'FFFFFF'],
                 ],
                 'fill' => [
-                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                    'startColor' => ['rgb' => '366092']
-                ]
-            ]
+                    'fillType' => Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '366092'],
+                ],
+            ],
         ];
     }
 }

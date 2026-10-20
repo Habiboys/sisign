@@ -6,30 +6,36 @@ use App\Models\Sertifikat;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Content;
-use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
 class CertificateEmail extends Mailable
 {
     use Queueable, SerializesModels;
 
+    public const DEFAULT_MESSAGE = 'Sertifikat digital Anda terlampir dalam format PDF. Silakan unduh dan simpan untuk keperluan Anda.';
+
     public Sertifikat $sertifikat;
+
     public ?User $recipient;
+
     public $template;
+
     public string $certificatePath;
+
     public string $recipientName;
+
     public string $recipientEmail;
 
     /**
      * Create a new message instance.
      */
-    public function __construct(Sertifikat $sertifikat, ?User $recipient, $template, string $certificatePath)
+    public function __construct(Sertifikat $sertifikat, ?User $recipient, $template, string $certificatePath, public ?string $emailSubject = null, public ?string $emailMessage = null)
     {
         $this->sertifikat = $sertifikat;
         $this->recipient = $recipient;
         $this->template = $template;
         $this->certificatePath = $certificatePath;
+        $this->emailMessage = $emailMessage ?: self::DEFAULT_MESSAGE;
 
         // Set recipient name and email
         if ($recipient) {
@@ -45,20 +51,21 @@ class CertificateEmail extends Mailable
     /**
      * Build the message.
      */
-    public function build()
+    public function build(): static
     {
-        return $this->subject('Sertifikat Digital - ' . ($this->template->title ?? 'Sertifikat'))
+        return $this->subject($this->emailSubject ?: 'Sertifikat Digital - '.($this->template->title ?? 'Sertifikat'))
             ->view('emails.certificate')
             ->with([
                 'sertifikat' => $this->sertifikat,
                 'recipient' => $this->recipient,
                 'recipientName' => $this->recipientName,
                 'recipientEmail' => $this->recipientEmail,
-                'template' => $this->template
+                'template' => $this->template,
+                'emailMessage' => $this->emailMessage ?: self::DEFAULT_MESSAGE,
             ])
             ->attach($this->certificatePath, [
-                'as' => 'Sertifikat_' . $this->sertifikat->nomor_sertif . '.pdf',
-                'mime' => 'application/pdf'
+                'as' => 'Sertifikat_'.$this->sertifikat->nomor_sertif.'.pdf',
+                'mime' => 'application/pdf',
             ]);
     }
 }

@@ -1,0 +1,12 @@
+.git
+.env*
+!.env.example
+storage
+public/storage
+bootstrap/cache
+node_modules
+vendor
+public/build
+public/hot
+*.sql
+*.log

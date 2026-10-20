@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Document;
 use App\Models\DocumentSigner;
-use App\Models\EncryptionKey;
+use App\Models\Review;
 use App\Models\User;
 use App\Services\EncryptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -20,7 +20,7 @@ class MultiSignatureTest extends TestCase
     {
         Storage::fake('public');
 
-        $user = User::factory()->create(['role' => 'user']);
+        $user = User::factory()->create(['role' => 'pengaju']);
         $signer1 = User::factory()->create(['role' => 'pimpinan']);
         $signer2 = User::factory()->create(['role' => 'pimpinan']);
 
@@ -45,15 +45,18 @@ class MultiSignatureTest extends TestCase
     public function test_barcode_generated_only_after_all_signers_signed()
     {
         Storage::fake('public');
-        
+
         // Setup users and keys
         $signer1 = User::factory()->create(['role' => 'pimpinan']);
         $signer2 = User::factory()->create(['role' => 'pimpinan']);
-        
-        // Generate keys for signers
+
+        // Generate keys for signers (passphrase must match their PIN, which the
+        // frontend sends as `pin` to storeDigital).
         $encryptionService = app(EncryptionService::class);
-        $encryptionService->generateKeyPair($signer1, 'passphrase1');
-        $encryptionService->generateKeyPair($signer2, 'passphrase2');
+        $encryptionService->generateKeyPair($signer1, '123456');
+        $encryptionService->generateKeyPair($signer2, '123456');
+        $signer1->update(['pin' => bcrypt('123456')]);
+        $signer2->update(['pin' => bcrypt('123456')]);
 
         // Create document
         $document = Document::create([
@@ -62,7 +65,7 @@ class MultiSignatureTest extends TestCase
             'files' => 'test.pdf',
             'number' => '123',
             'to' => $signer1->id, // Legacy field
-            'reviewId' => \App\Models\Review::create(['status' => 'approved'])->id,
+            'reviewId' => Review::create(['status' => 'approved'])->id,
         ]);
 
         // Create signers
@@ -70,34 +73,42 @@ class MultiSignatureTest extends TestCase
         DocumentSigner::create(['document_id' => $document->id, 'user_id' => $signer2->id]);
 
         // Mock PDF file
-        Storage::disk('public')->put('documents/test.pdf', '%PDF-1.4 mock content');
+        // NB: createDocumentHash() reads storage_path('app/public/...') directly
+        // (not the Storage disk facade), so the file must exist at the real path,
+        // not only on the faked disk.
+        $pdfDir = storage_path('app/public/documents');
+        if (! is_dir($pdfDir)) {
+            mkdir($pdfDir, 0755, true);
+        }
+        file_put_contents($pdfDir.'/test.pdf', '%PDF-1.4 mock content');
 
         // Signer 1 signs
-        $this->actingAs($signer1)->post(route('signatures.store.digital', $document), [
-            'passphrase' => 'passphrase1',
-            'position' => ['x' => 10, 'y' => 10, 'width' => 100, 'height' => 50, 'page' => 1]
+        $response = $this->actingAs($signer1)->post(route('signatures.digital', $document), [
+            'pin' => '123456',
+            'position' => ['x' => 10, 'y' => 10, 'width' => 100, 'height' => 50, 'page' => 1],
         ]);
 
+        $response->assertSuccessful();
         $this->assertTrue($document->signers()->where('user_id', $signer1->id)->first()->is_signed);
         $this->assertFalse($document->fresh()->isCompleted());
 
         // Signer 2 signs
-        $this->actingAs($signer2)->post(route('signatures.store.digital', $document), [
-            'passphrase' => 'passphrase2',
-            'position' => ['x' => 10, 'y' => 60, 'width' => 100, 'height' => 50, 'page' => 1]
+        $this->actingAs($signer2)->post(route('signatures.digital', $document), [
+            'pin' => '123456',
+            'position' => ['x' => 10, 'y' => 60, 'width' => 100, 'height' => 50, 'page' => 1],
         ]);
 
         $this->assertTrue($document->signers()->where('user_id', $signer2->id)->first()->is_signed);
         $this->assertTrue($document->fresh()->isCompleted());
     }
-    
+
     public function test_signature_fails_with_wrong_passphrase()
     {
         Storage::fake('public');
-        
-        $signer = User::factory()->create(['role' => 'pimpinan']);
+
+        $signer = User::factory()->create(['role' => 'pimpinan', 'pin' => bcrypt('123456')]);
         $encryptionService = app(EncryptionService::class);
-        $encryptionService->generateKeyPair($signer, 'correct_passphrase');
+        $encryptionService->generateKeyPair($signer, '123456');
 
         $document = Document::create([
             'userId' => User::factory()->create()->id,
@@ -105,19 +116,23 @@ class MultiSignatureTest extends TestCase
             'files' => 'test.pdf',
             'number' => '123',
             'to' => $signer->id,
-            'reviewId' => \App\Models\Review::create(['status' => 'approved'])->id,
+            'reviewId' => Review::create(['status' => 'approved'])->id,
         ]);
-        
+
         DocumentSigner::create(['document_id' => $document->id, 'user_id' => $signer->id]);
-        Storage::disk('public')->put('documents/test.pdf', '%PDF-1.4 mock content');
+        $pdfDir = storage_path('app/public/documents');
+        if (! is_dir($pdfDir)) {
+            mkdir($pdfDir, 0755, true);
+        }
+        file_put_contents($pdfDir.'/test.pdf', '%PDF-1.4 mock content');
 
-        $response = $this->actingAs($signer)->postJson(route('signatures.store.digital', $document), [
-            'passphrase' => 'wrong_passphrase',
-            'position' => ['x' => 10, 'y' => 10, 'width' => 100, 'height' => 50, 'page' => 1]
+        $response = $this->actingAs($signer)->postJson(route('signatures.digital', $document), [
+            'pin' => '000000',
+            'position' => ['x' => 10, 'y' => 10, 'width' => 100, 'height' => 50, 'page' => 1],
         ]);
 
-        $response->assertStatus(500);
+        $response->assertStatus(403);
         $response->assertJsonFragment(['success' => false]);
-        $this->assertStringContainsString('Invalid private key or passphrase', $response->json('message'));
+        $this->assertSame('PIN salah', $response->json('message'));
     }
 }

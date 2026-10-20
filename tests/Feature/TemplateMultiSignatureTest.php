@@ -2,14 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Models\Review;
 use App\Models\TemplateSertif;
 use App\Models\TemplateSigner;
 use App\Models\User;
-use App\Models\Review;
 use App\Services\EncryptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use TCPDF;
 use Tests\TestCase;
 
 class TemplateMultiSignatureTest extends TestCase
@@ -45,11 +46,11 @@ class TemplateMultiSignatureTest extends TestCase
     public function test_template_signing_flow()
     {
         Storage::fake('public');
-        
+
         // Setup users and keys
         $signer1 = User::factory()->create(['role' => 'pimpinan']);
         $signer2 = User::factory()->create(['role' => 'pimpinan']);
-        
+
         // Generate keys for signers
         $encryptionService = app(EncryptionService::class);
         $encryptionService->generateKeyPair($signer1, 'passphrase1');
@@ -67,15 +68,27 @@ class TemplateMultiSignatureTest extends TestCase
         TemplateSigner::create(['template_id' => $template->id, 'user_id' => $signer2->id]);
 
         // Mock PDF file
-        Storage::disk('public')->put('templates/template.pdf', '%PDF-1.4 mock content');
+        // NB: CertificateService::signTemplate() (the fallback path used when no
+        // signedPdfBase64 is sent) reads storage_path('app/public/...') directly
+        // (not the Storage disk facade) and parses it with FPDI, which requires
+        // a structurally valid PDF (not just bytes starting with "%PDF-"), so we
+        // generate a real one-page PDF with TCPDF instead of writing raw bytes.
+        $pdfDir = storage_path('app/public/templates');
+        if (! is_dir($pdfDir)) {
+            mkdir($pdfDir, 0755, true);
+        }
+        $pdf = new TCPDF;
+        $pdf->AddPage();
+        $pdf->Write(0, 'Mock template content');
+        $pdf->Output($pdfDir.'/template.pdf', 'F');
 
         // Signer 1 signs
         $response = $this->actingAs($signer1)->post(route('templates.sign', $template), [
             'signatureData' => 'data:image/png;base64,mocksignature',
             'passphrase' => 'passphrase1',
-            'position' => ['x' => 10, 'y' => 10, 'width' => 100, 'height' => 50, 'page' => 1]
+            'position' => ['x' => 10, 'y' => 10, 'width' => 100, 'height' => 50, 'page' => 1],
         ]);
-        
+
         $response->assertRedirect(route('templates.show', $template->id));
         $this->assertTrue($template->signers()->where('user_id', $signer1->id)->first()->is_signed);
         $this->assertFalse($template->fresh()->isCompleted());
@@ -84,7 +97,7 @@ class TemplateMultiSignatureTest extends TestCase
         $response = $this->actingAs($signer2)->post(route('templates.sign', $template), [
             'signatureData' => 'data:image/png;base64,mocksignature',
             'passphrase' => 'passphrase2',
-            'position' => ['x' => 10, 'y' => 60, 'width' => 100, 'height' => 50, 'page' => 1]
+            'position' => ['x' => 10, 'y' => 60, 'width' => 100, 'height' => 50, 'page' => 1],
         ]);
 
         $response->assertRedirect(route('templates.show', $template->id));

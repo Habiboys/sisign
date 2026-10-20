@@ -1,126 +1,56 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="id">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sertifikat Digital</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-            border-radius: 10px 10px 0 0;
-        }
-
-        .content {
-            background: #f8f9fa;
-            padding: 30px;
-            border-radius: 0 0 10px 10px;
-        }
-
-        .certificate-info {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-            border-left: 4px solid #667eea;
-        }
-
-        .info-row {
-            display: flex;
-            margin: 10px 0;
-        }
-
-        .info-label {
-            font-weight: bold;
-            width: 150px;
-            color: #555;
-        }
-
-        .info-value {
-            flex: 1;
-            color: #333;
-        }
-
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
-            color: #666;
-            font-size: 14px;
-        }
-
-        .button {
-            display: inline-block;
-            background: #667eea;
-            color: white;
-            padding: 12px 24px;
-            text-decoration: none;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-
-        .button:hover {
-            background: #5a6fd8;
-        }
-    </style>
 </head>
-
-<body>
-    <div class="header">
-        <h1>Sertifikat Digital</h1>
-        <p>{{ $template->title }}</p>
-    </div>
-
-    <div class="content">
-        <h2>Selamat {{ $recipientName ?? ($recipient->name ?? 'Penerima') }}!</h2>
-
-        <p>Anda telah menerima sertifikat digital dengan detail sebagai berikut:</p>
-
-        <div class="certificate-info">
-            <div class="info-row">
-                <div class="info-label">Nomor Sertifikat:</div>
-                <div class="info-value">{{ $sertifikat->nomor_sertif }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Nama Penerima:</div>
-                <div class="info-value">{{ $recipientName ?? ($recipient->name ?? 'Penerima Sertifikat') }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Email:</div>
-                <div class="info-value">{{ $recipientEmail ?? ($recipient->email ?? $sertifikat->email ?? 'N/A') }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Tanggal Terbit:</div>
-                <div class="info-value">{{ $sertifikat->created_at->format('d F Y') }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Template:</div>
-                <div class="info-value">{{ $template->title }}</div>
-            </div>
-        </div>
-
-        <p><strong>Sertifikat digital Anda terlampir dalam email ini.</strong> File PDF dapat Anda download dan simpan untuk keperluan verifikasi atau pencetakan.</p>
-
-        <p>Jika Anda memiliki pertanyaan atau memerlukan bantuan, silakan hubungi administrator sistem.</p>
-
-        <div class="footer">
-            <p>Email ini dikirim secara otomatis oleh sistem SiSign Digital Certificate</p>
-            <p>© {{ date('Y') }} SiSign - Digital Certificate Management System</p>
-        </div>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #ffffff; color: #27272a; font-family: Arial, Helvetica, sans-serif; -webkit-text-size-adjust: 100%;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td align="center" style="padding: 32px 20px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 560px; text-align: left;">
+                    <tr>
+                        <td style="padding-bottom: 24px; border-bottom: 1px solid #e4e4e7; color: #52525b; font-size: 13px; line-height: 20px;">
+                            {{ config('mail.from.name') ?: config('app.name') }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 28px 0 24px;">
+                            <h1 style="margin: 0 0 8px; color: #18181b; font-size: 26px; line-height: 34px; font-weight: 600;">Sertifikat Anda</h1>
+                            <p style="margin: 0; color: #71717a; font-size: 15px; line-height: 24px; overflow-wrap: anywhere;">{{ $template->title ?? 'Sertifikat Digital' }}</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-size: 15px; line-height: 25px;">
+                            <p style="margin: 0 0 20px;">{{ $recipient ? 'Yth. '.$recipient->name.',' : 'Yth. Bapak/Ibu,' }}</p>
+                            @foreach (preg_split('/\R{2,}/u', $emailMessage) as $paragraph)
+                                <p style="margin: 0 0 20px; overflow-wrap: anywhere;">{!! nl2br(e($paragraph)) !!}</p>
+                            @endforeach
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 0 24px;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top: 1px solid #e4e4e7; border-bottom: 1px solid #e4e4e7; font-size: 13px; line-height: 21px;">
+                                <tr>
+                                    <td style="padding: 16px 16px 4px 0; color: #71717a; width: 140px; vertical-align: top;">Nomor sertifikat</td>
+                                    <td style="padding: 16px 0 4px; color: #27272a; overflow-wrap: anywhere;">{{ $sertifikat->nomor_sertif }}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 16px 16px 0; color: #71717a; vertical-align: top;">Tanggal terbit</td>
+                                    <td style="padding: 4px 0 16px; color: #27272a;">{{ $sertifikat->created_at->locale('id')->translatedFormat('d F Y') }}</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="color: #71717a; font-size: 12px; line-height: 20px;">
+                            Email ini dikirim otomatis. Hubungi pengirim jika ada data yang perlu diperbaiki.
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
-
 </html>
