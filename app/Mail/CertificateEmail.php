@@ -12,7 +12,7 @@ class CertificateEmail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public const DEFAULT_MESSAGE = "Anda telah menerima sertifikat digital.\n\nSertifikat digital Anda terlampir dalam email ini. File PDF dapat Anda unduh dan simpan untuk keperluan verifikasi atau pencetakan.\n\nJika Anda memiliki pertanyaan atau memerlukan bantuan, silakan hubungi administrator sistem.";
+    public const DEFAULT_MESSAGE = 'Sertifikat digital Anda terlampir dalam format PDF. Silakan unduh dan simpan untuk keperluan Anda.';
 
     public Sertifikat $sertifikat;
 

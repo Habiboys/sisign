@@ -46,7 +46,7 @@ class CertificateEmailDeliveryTest extends TestCase
         $certificate = Sertifikat::factory()->create();
         $mail = new CertificateEmail($certificate, null, $certificate->templateSertif, __FILE__);
 
-        $mail->assertSeeInHtml('Anda telah menerima sertifikat digital.');
+        $mail->assertSeeInHtml(CertificateEmail::DEFAULT_MESSAGE);
         $mail->assertHasSubject('Sertifikat Digital - '.$certificate->templateSertif->title);
     }
 
@@ -62,6 +62,22 @@ class CertificateEmailDeliveryTest extends TestCase
             'as' => 'Sertifikat_'.$certificate->nomor_sertif.'.pdf',
             'mime' => 'application/pdf',
         ]);
+    }
+
+    public function test_email_renders_a_simple_layout_with_readable_custom_paragraphs(): void
+    {
+        $certificate = Sertifikat::factory()->create();
+        $mail = new CertificateEmail($certificate, null, $certificate->templateSertif, __FILE__, null, "Terima kasih atas partisipasi Anda.\n\nSertifikat terlampir.\nSalam, Panitia");
+        $html = $mail->render();
+
+        $this->assertStringContainsString('<html lang="id">', $html);
+        $this->assertStringContainsString('Sertifikat Anda', $html);
+        $this->assertStringContainsString('Yth. Bapak/Ibu,', $html);
+        $this->assertStringContainsString(e($certificate->nomor_sertif), $html);
+        $this->assertStringContainsString('Sertifikat terlampir.<br />', $html);
+        $this->assertStringContainsString('role="presentation"', $html);
+        $this->assertStringNotContainsString('linear-gradient', $html);
+        $this->assertStringNotContainsString('display: flex', $html);
     }
 
     public function test_invalid_content_is_rejected_before_dispatch(): void
